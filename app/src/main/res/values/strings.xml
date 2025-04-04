@@ -1,3 +1,70 @@
 <resources>
     <string name="app_name">IOTVenture</string>
+
+    <!-- Login Screen -->
+    <string name="login_title">Treasure Hunt</string>
+    <string name="login_subtitle">Begin your adventure</string>
+    <string name="login_username_hint">Username</string>
+    <string name="login_password_hint">Password</string>
+    <string name="login_button">Login</string>
+    <string name="login_offline_note">Game works offline after initial login</string>
+    <string name="login_error_empty_fields">Please enter both username and password</string>
+
+    <!-- Dashboard Screen -->
+    <string name="dashboard_current_clue">Current Clue</string>
+    <string name="dashboard_hint">HINT:</string>
+    <string name="dashboard_scan_button">Scan NFC Token</string>
+    <string name="dashboard_progress">Your Progress</string>
+    <string name="dashboard_clues_solved">%1$d of %2$d clues solved</string>
+
+    <!-- Leaderboard Screen -->
+    <string name="leaderboard_title">Leaderboard</string>
+    <string name="leaderboard_last_updated">Last updated: %1$s</string>
+    <string name="leaderboard_offline_notice">You\'re offline. Leaderboard will update when connected.</string>
+    <string name="leaderboard_team_you">%1$s (You)</string>
+    <string name="leaderboard_team_stats">%1$d clues • %2$s</string>
+    <string name="leaderboard_points">PTS</string>
+
+    <!-- Team Chat Screen -->
+    <string name="chat_title">Team Chat</string>
+    <string name="chat_members_online">%1$d members online</string>
+    <string name="chat_message_hint">Type a message…</string>
+
+    <!-- Scan NFC Screen -->
+    <string name="scan_title">Scan NFC Token</string>
+    <string name="scan_instruction">Hold your device near the NFC token</string>
+    <string name="scan_searching">Scanning for NFC token…</string>
+    <string name="scan_success">Token found! Clue unlocked.</string>
+    <string name="scan_error">Scan failed. Please try again.</string>
+    <string name="scan_try_again">Try Again</string>
+
+    <!-- Emergency Unlock Screen -->
+    <string name="emergency_title">Emergency Unlock</string>
+    <string name="emergency_warning">This will unlock the game and allow you to exit. Your progress will be saved, but you may forfeit any ongoing challenges.</string>
+    <string name="emergency_note">Only use this in case of a real emergency.</string>
+    <string name="emergency_unlock_button">Emergency Unlock</string>
+    <string name="emergency_unlocking_in">Unlocking in</string>
+    <string name="emergency_cancel">Cancel</string>
+    <string name="emergency_dialog_title">Game Unlocked</string>
+    <string name="emergency_dialog_message">Emergency unlock activated. Your game progress has been saved. You can now exit the app.</string>
+    <string name="emergency_exit_game">Exit Game</string>
+    <string name="emergency_return_to_game">Return to Game</string>
+
+    <!-- Device Transfer Screen -->
+    <string name="transfer_title">Device Transfer</string>
+    <string name="transfer_method">Transfer Method</string>
+    <string name="transfer_bluetooth">Bluetooth</string>
+    <string name="transfer_bluetooth_desc">Transfer directly to a nearby device</string>
+    <string name="transfer_nearby">Nearby Share</string>
+    <string name="transfer_nearby_desc">Use Android\'s Nearby Share feature</string>
+    <string name="transfer_security">Security</string>
+    <string name="transfer_encrypt">Encrypt Data</string>
+    <string name="transfer_encrypt_desc">Secure your game data during transfer</string>
+    <string name="transfer_start">Start Transfer</string>
+    <string name="transfer_note">Note: After transfer, this device will be logged out and all game data will be deleted.</string>
+    <string name="transfer_searching">Searching for nearby devices…</string>
+    <string name="transfer_transferring">Transferring game data…</string>
+    <string name="transfer_success">Transfer complete! You can now continue playing on the new device.</string>
+    <string name="transfer_error">Transfer failed. Please try again.</string>
+    <string name="transfer_log_out">Log Out</string>
 </resources>
