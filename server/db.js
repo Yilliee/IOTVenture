@@ -39,16 +39,16 @@ function initializeDatabase() {
             }
           });
 
-          db.run(
-            `INSERT INTO Teams (name, password, sessions_allowed_count) VALUES (?, ?, ?)`,
-            ["what_a_name", "what_a_password", 2],
-            (err) => {
-              if (err) {
-                console.error("Error inserting initial team:", err);
-                process.exit(1);
-              }
-            }
-          );
+//          db.run(
+//            `INSERT INTO Teams (name, password, sessions_allowed_count) VALUES (?, ?, ?)`,
+//            ["what_a_name", "what_a_password", 2],
+//            (err) => {
+//              if (err) {
+//                console.error("Error inserting initial team:", err);
+//                process.exit(1);
+//              }
+//            }
+//          );
         });
       }
     });
