@@ -27,7 +27,9 @@ fun GameDashboardScreen(
     onLeaderboardClick: () -> Unit,
     onTeamChatClick: () -> Unit,
     onScanClick: () -> Unit,
-    onEmergencyClick: () -> Unit
+    onEmergencyClick: () -> Unit,
+    onClueMapClick: () -> Unit,
+    onTeamLogClick: () -> Unit
 ) {
     var gameTime by remember { mutableStateOf(0L) }
     val currentClue = remember {
@@ -81,7 +83,9 @@ fun GameDashboardScreen(
             // Action Buttons
             ActionButtons(
                 onLeaderboardClick = onLeaderboardClick,
-                onTeamChatClick = onTeamChatClick
+                onTeamChatClick = onTeamChatClick,
+                onClueMapClick = onClueMapClick,
+                onTeamLogClick = onTeamLogClick
             )
 
             Spacer(modifier = Modifier.height(20.dp))
@@ -257,7 +261,9 @@ fun ClueCard(
 @Composable
 fun ActionButtons(
     onLeaderboardClick: () -> Unit,
-    onTeamChatClick: () -> Unit
+    onTeamChatClick: () -> Unit,
+    onClueMapClick: () -> Unit,
+    onTeamLogClick: () -> Unit
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -292,7 +298,7 @@ fun ActionButtons(
         ActionButton(
             icon = Icons.Default.Place,
             text = "Clue Map",
-            onClick = { /* Navigate to map */ },
+            onClick = onClueMapClick,
             modifier = Modifier.weight(1f)
         )
 
@@ -301,8 +307,8 @@ fun ActionButtons(
         // Team Button
         ActionButton(
             icon = Icons.Default.Group,
-            text = "Team",
-            onClick = { /* Navigate to team */ },
+            text = "Team Log",
+            onClick = onTeamLogClick,
             modifier = Modifier.weight(1f)
         )
     }
@@ -321,7 +327,8 @@ fun ActionButton(
         colors = CardDefaults.cardColors(
             containerColor = DarkSurface
         ),
-        shape = MaterialTheme.shapes.medium
+        shape = MaterialTheme.shapes.medium,
+        onClick = onClick
     ) {
         Column(
             modifier = Modifier
@@ -330,19 +337,14 @@ fun ActionButton(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            IconButton(
-                onClick = onClick,
-                modifier = Modifier.size(40.dp)
-            ) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = text,
-                    tint = Gold,
-                    modifier = Modifier.size(24.dp)
-                )
-            }
+            Icon(
+                imageVector = icon,
+                contentDescription = text,
+                tint = Gold,
+                modifier = Modifier.size(24.dp)
+            )
 
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
             Text(
                 text = text,
@@ -458,4 +460,3 @@ data class ClueData(
     val hint: String,
     val isCompleted: Boolean
 )
-
