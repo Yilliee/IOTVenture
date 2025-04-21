@@ -20,17 +20,15 @@ import java.text.SimpleDateFormat
 import java.util.*
 
 @Composable
-fun TeamLogScreen(
+fun TeamDetailsScreen(
     onBackClick: () -> Unit
 ) {
     val teamMembers = remember { getMockTeamMembers() }
-    val activityLog = remember { getMockActivityLog() }
-    var selectedFilter by remember { mutableStateOf("All") }
-    val filters = listOf("All", "Clues Found", "Challenges", "Team Updates")
+    val clueFindings = remember { getMockClueFindings() }
 
     Scaffold(
         topBar = {
-            TeamLogTopBar(
+            TeamDetailsTopBar(
                 onBackClick = onBackClick
             )
         }
@@ -61,53 +59,22 @@ fun TeamLogScreen(
                 }
             }
 
-            // Filter Chips
-            SingleChoiceSegmentedButtonRow(
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                filters.forEachIndexed { index, filter ->
-                    SegmentedButton(
-                        selected = selectedFilter == filter,
-                        onClick = { selectedFilter = filter },
-                        shape = SegmentedButtonDefaults.itemShape(
-                            index = index,
-                            count = filters.size
-                        ),
-                        colors = SegmentedButtonDefaults.colors(
-                            activeContainerColor = Gold,
-                            activeContentColor = DarkBackground,
-                            inactiveContainerColor = DarkSurfaceLight,
-                            inactiveContentColor = TextWhite
-                        )
-                    ) {
-                        Text(filter)
-                    }
-                }
-            }
-
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Activity Log Title
+            // Clue Findings Title
             Text(
-                text = "Activity Log",
+                text = "Clue Findings",
                 style = MaterialTheme.typography.titleLarge,
                 color = Gold,
                 modifier = Modifier.padding(bottom = 12.dp)
             )
 
-            // Activity Log List
+            // Clue Findings List
             LazyColumn(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                val filteredLog = when (selectedFilter) {
-                    "Clues Found" -> activityLog.filter { it.type == ActivityType.CLUE_FOUND }
-                    "Challenges" -> activityLog.filter { it.type == ActivityType.CHALLENGE }
-                    "Team Updates" -> activityLog.filter { it.type == ActivityType.TEAM_UPDATE }
-                    else -> activityLog
-                }
-
-                items(filteredLog) { activity ->
-                    ActivityLogItem(activity = activity)
+                items(clueFindings) { finding ->
+                    ClueFoundItem(finding = finding)
                 }
             }
         }
@@ -115,7 +82,7 @@ fun TeamLogScreen(
 }
 
 @Composable
-fun TeamLogTopBar(
+fun TeamDetailsTopBar(
     onBackClick: () -> Unit
 ) {
     Surface(
@@ -142,7 +109,7 @@ fun TeamLogTopBar(
             Spacer(modifier = Modifier.width(16.dp))
 
             Text(
-                text = "Team Log",
+                text = "Team Details",
                 style = MaterialTheme.typography.titleLarge,
                 color = TextWhite
             )
@@ -193,8 +160,8 @@ fun TeamMemberAvatar(
 }
 
 @Composable
-fun ActivityLogItem(
-    activity: ActivityLog
+fun ClueFoundItem(
+    finding: ClueFinding
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -209,32 +176,18 @@ fun ActivityLogItem(
                 .padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Activity Icon
+            // Clue Icon
             Box(
                 modifier = Modifier
                     .size(40.dp)
                     .clip(CircleShape)
-                    .background(
-                        when (activity.type) {
-                            ActivityType.CLUE_FOUND -> SuccessGreen.copy(alpha = 0.2f)
-                            ActivityType.CHALLENGE -> Gold.copy(alpha = 0.2f)
-                            ActivityType.TEAM_UPDATE -> DarkSurfaceLight
-                        }
-                    ),
+                    .background(SuccessGreen.copy(alpha = 0.2f)),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
-                    imageVector = when (activity.type) {
-                        ActivityType.CLUE_FOUND -> Icons.Default.Place
-                        ActivityType.CHALLENGE -> Icons.Default.EmojiEvents
-                        ActivityType.TEAM_UPDATE -> Icons.Default.Group
-                    },
+                    imageVector = Icons.Default.Place,
                     contentDescription = null,
-                    tint = when (activity.type) {
-                        ActivityType.CLUE_FOUND -> SuccessGreen
-                        ActivityType.CHALLENGE -> Gold
-                        ActivityType.TEAM_UPDATE -> TextWhite
-                    },
+                    tint = SuccessGreen,
                     modifier = Modifier.size(24.dp)
                 )
             }
@@ -245,20 +198,10 @@ fun ActivityLogItem(
                 modifier = Modifier.weight(1f)
             ) {
                 Text(
-                    text = activity.title,
+                    text = "Clue #${finding.clueNumber}: ${finding.clueTitle}",
                     style = MaterialTheme.typography.titleMedium,
-                    color = when (activity.type) {
-                        ActivityType.CLUE_FOUND -> SuccessGreen
-                        ActivityType.CHALLENGE -> Gold
-                        ActivityType.TEAM_UPDATE -> TextWhite
-                    },
+                    color = SuccessGreen,
                     fontWeight = FontWeight.Bold
-                )
-
-                Text(
-                    text = activity.description,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = TextWhite
                 )
 
                 Spacer(modifier = Modifier.height(4.dp))
@@ -267,7 +210,7 @@ fun ActivityLogItem(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = activity.memberName,
+                        text = "Found by ${finding.foundBy}",
                         style = MaterialTheme.typography.bodySmall,
                         color = Gold,
                         fontWeight = FontWeight.Bold
@@ -276,7 +219,7 @@ fun ActivityLogItem(
                     Spacer(modifier = Modifier.width(8.dp))
 
                     Text(
-                        text = activity.timestamp,
+                        text = finding.timestamp,
                         style = MaterialTheme.typography.bodySmall,
                         color = TextGray
                     )
@@ -292,17 +235,12 @@ data class TeamMember(
     val cluesFound: Int
 )
 
-enum class ActivityType {
-    CLUE_FOUND, CHALLENGE, TEAM_UPDATE
-}
-
-data class ActivityLog(
+data class ClueFinding(
     val id: Int,
-    val title: String,
-    val description: String,
-    val memberName: String,
-    val timestamp: String,
-    val type: ActivityType
+    val clueNumber: Int,
+    val clueTitle: String,
+    val foundBy: String,
+    val timestamp: String
 )
 
 private fun getMockTeamMembers(): List<TeamMember> {
@@ -314,76 +252,56 @@ private fun getMockTeamMembers(): List<TeamMember> {
     )
 }
 
-private fun getMockActivityLog(): List<ActivityLog> {
+private fun getMockClueFindings(): List<ClueFinding> {
     val dateFormat = SimpleDateFormat("MMM dd, hh:mm a", Locale.getDefault())
-    val currentDate = Date()
     val calendar = Calendar.getInstance()
-    
+
     // Current time minus 10 minutes
-    calendar.time = currentDate
+    calendar.time = Date()
     calendar.add(Calendar.MINUTE, -10)
     val time1 = dateFormat.format(calendar.time)
-    
+
     // Current time minus 30 minutes
-    calendar.time = currentDate
+    calendar.time = Date()
     calendar.add(Calendar.MINUTE, -30)
     val time2 = dateFormat.format(calendar.time)
-    
+
     // Current time minus 1 hour
-    calendar.time = currentDate
+    calendar.time = Date()
     calendar.add(Calendar.HOUR, -1)
     val time3 = dateFormat.format(calendar.time)
-    
+
     // Current time minus 2 hours
-    calendar.time = currentDate
+    calendar.time = Date()
     calendar.add(Calendar.HOUR, -2)
     val time4 = dateFormat.format(calendar.time)
-    
+
     // Current time minus 3 hours
-    calendar.time = currentDate
+    calendar.time = Date()
     calendar.add(Calendar.HOUR, -3)
     val time5 = dateFormat.format(calendar.time)
-    
+
     return listOf(
-        ActivityLog(
+        ClueFinding(
             id = 1,
-            title = "Clue #3 Found",
-            description = "The Clock Tower clue has been solved!",
-            memberName = "Alex",
-            timestamp = time1,
-            type = ActivityType.CLUE_FOUND
+            clueNumber = 3,
+            clueTitle = "The Clock Tower",
+            foundBy = "Alex",
+            timestamp = time1
         ),
-        ActivityLog(
+        ClueFinding(
             id = 2,
-            title = "Challenge Completed",
-            description = "Decoded the ancient cipher in record time.",
-            memberName = "Sarah",
-            timestamp = time2,
-            type = ActivityType.CHALLENGE
+            clueNumber = 2,
+            clueTitle = "The Ancient Library",
+            foundBy = "Mike",
+            timestamp = time4
         ),
-        ActivityLog(
+        ClueFinding(
             id = 3,
-            title = "Team Rank Updated",
-            description = "Team moved up to 3rd place on the leaderboard.",
-            memberName = "System",
-            timestamp = time3,
-            type = ActivityType.TEAM_UPDATE
-        ),
-        ActivityLog(
-            id = 4,
-            title = "Clue #2 Found",
-            description = "The Ancient Library clue has been solved!",
-            memberName = "Mike",
-            timestamp = time4,
-            type = ActivityType.CLUE_FOUND
-        ),
-        ActivityLog(
-            id = 5,
-            title = "Clue #1 Found",
-            description = "The Starting Point clue has been solved!",
-            memberName = "You",
-            timestamp = time5,
-            type = ActivityType.CLUE_FOUND
+            clueNumber = 1,
+            clueTitle = "The Starting Point",
+            foundBy = "You",
+            timestamp = time5
         )
     )
 }

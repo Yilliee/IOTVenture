@@ -1,10 +1,15 @@
 package dev.yilliee.iotventure.screens.map
 
-import androidx.compose.foundation.Canvas
+import android.Manifest
+import android.content.Context
+import android.content.pm.PackageManager
+import android.location.Location
+import android.location.LocationListener
+import android.location.LocationManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -15,23 +20,66 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.ContextCompat
 import dev.yilliee.iotventure.ui.theme.*
+import org.osmdroid.config.Configuration
+import org.osmdroid.tileprovider.tilesource.TileSourceFactory
+import org.osmdroid.util.GeoPoint
+import org.osmdroid.views.MapView
+import org.osmdroid.views.overlay.Marker
+import org.osmdroid.views.overlay.Polyline
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+
+fun Context.findActivity(): android.app.Activity? = when (this) {
+    is android.app.Activity -> this
+    is android.content.ContextWrapper -> baseContext.findActivity()
+    else -> null
+}
 
 @Composable
 fun ClueMapScreen(
     onBackClick: () -> Unit
 ) {
-    var scale by remember { mutableStateOf(1f) }
-    var offset by remember { mutableStateOf(Offset.Zero) }
+    val context = LocalContext.current
     var selectedClue by remember { mutableStateOf<ClueMapPoint?>(null) }
     val cluePoints = remember { getMockCluePoints() }
+
+    // Location state
+    var userLocation by remember { mutableStateOf<GeoPoint?>(null) }
+    var hasLocationPermission by remember { mutableStateOf(false) }
+
+    // Create a reference to the MapView that can be accessed by the zoom buttons
+    val mapViewRef = remember { mutableStateOf<MapView?>(null) }
+
+    // Check if we already have permission
+    LaunchedEffect(Unit) {
+        hasLocationPermission = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.ACCESS_FINE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+    }
+
+    // Request location permission
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        hasLocationPermission = isGranted
+    }
+
+    // Request permission if not granted
+    LaunchedEffect(Unit) {
+        if (!hasLocationPermission) {
+            permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -45,170 +93,200 @@ fun ClueMapScreen(
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
-            // Map with zoom and pan
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(DarkBackground)
-                    .pointerInput(Unit) {
-                        detectTransformGestures { _, pan, zoom, _ ->
-                            scale = (scale * zoom).coerceIn(0.5f, 3f)
-                            val newOffset = offset + pan
-                            offset = newOffset
+            // Map View
+            AndroidView(
+                factory = { ctx ->
+                    // Initialize OSMDroid
+                    Configuration.getInstance().load(ctx, ctx.getSharedPreferences("osmdroid", Context.MODE_PRIVATE))
+
+                    // Create MapView
+                    MapView(ctx).apply {
+                        tag = "mapView"
+                        setTileSource(TileSourceFactory.MAPNIK)
+                        setMultiTouchControls(true) // Keep multi-touch for pinch zoom
+                        setBuiltInZoomControls(false)
+
+                        // Disable built-in zoom controls
+                        setBuiltInZoomControls(false)
+
+                        // Set a higher zoom level (15.0 is city level, higher numbers = more zoomed in)
+                        controller.setZoom(15.0)
+
+                        // Set initial position to Pakistan (if no location available)
+                        val initialPoint = GeoPoint(30.3753, 69.3451) // Center of Pakistan
+                        controller.setCenter(initialPoint)
+
+                        // Store reference to the MapView
+                        mapViewRef.value = this
+                    }
+                },
+                modifier = Modifier.fillMaxSize(),
+                update = { mapView ->
+                    // Update map with clue points
+                    mapView.overlays.clear()
+
+                    // Add clue markers
+                    cluePoints.forEach { clue ->
+                        val marker = Marker(mapView).apply {
+                            position = GeoPoint(clue.latitude, clue.longitude)
+                            title = clue.title
+                            snippet = if (clue.isFound) "Found" else if (clue.isCurrent) "Current" else "Locked"
+                            icon = ContextCompat.getDrawable(
+                                context,
+                                android.R.drawable.ic_menu_compass
+                            )
+                            setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                            setOnMarkerClickListener { _, _ ->
+                                selectedClue = clue
+                                true
+                            }
                         }
-                    }
-            ) {
-                // Map background
-                Canvas(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .graphicsLayer(
-                            scaleX = scale,
-                            scaleY = scale,
-                            translationX = offset.x,
-                            translationY = offset.y
-                        )
-                ) {
-                    // Draw grid lines
-                    val gridSize = 50f
-                    val strokeWidth = 1f
-                    
-                    // Vertical lines
-                    for (x in 0..(size.width.toInt() / gridSize.toInt())) {
-                        val xPos = x * gridSize
-                        drawLine(
-                            color = Color.DarkGray.copy(alpha = 0.3f),
-                            start = Offset(xPos, 0f),
-                            end = Offset(xPos, size.height),
-                            strokeWidth = strokeWidth
-                        )
-                    }
-                    
-                    // Horizontal lines
-                    for (y in 0..(size.height.toInt() / gridSize.toInt())) {
-                        val yPos = y * gridSize
-                        drawLine(
-                            color = Color.DarkGray.copy(alpha = 0.3f),
-                            start = Offset(0f, yPos),
-                            end = Offset(size.width, yPos),
-                            strokeWidth = strokeWidth
-                        )
+                        mapView.overlays.add(marker)
                     }
 
-                    // Draw paths between clues
+                    // Add paths between found clues
                     val completedClues = cluePoints.filter { it.isFound }
                     if (completedClues.size > 1) {
-                        for (i in 0 until completedClues.size - 1) {
-                            drawLine(
-                                color = Gold.copy(alpha = 0.6f),
-                                start = Offset(completedClues[i].x, completedClues[i].y),
-                                end = Offset(completedClues[i + 1].x, completedClues[i + 1].y),
-                                strokeWidth = 5f
-                            )
+                        val path = Polyline().apply {
+                            outlinePaint.color = android.graphics.Color.parseColor("#FFD700") // Gold color
+                            outlinePaint.strokeWidth = 5f
                         }
+
+                        completedClues.forEach { clue ->
+                            path.addPoint(GeoPoint(clue.latitude, clue.longitude))
+                        }
+
+                        mapView.overlays.add(path)
                     }
 
-                    // Draw current path if there's a next clue
+                    // Add current path if there's a next clue
                     val lastCompletedClue = completedClues.lastOrNull()
-                    val nextClue = cluePoints.find { !it.isFound }
+                    val nextClue = cluePoints.find { it.isCurrent }
                     if (lastCompletedClue != null && nextClue != null) {
-                        drawLine(
-                            color = Gold.copy(alpha = 0.3f),
-                            start = Offset(lastCompletedClue.x, lastCompletedClue.y),
-                            end = Offset(nextClue.x, nextClue.y),
-                            strokeWidth = 5f,
-                            pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(
-                                floatArrayOf(20f, 10f), 0f
-                            )
-                        )
+                        val currentPath = Polyline().apply {
+                            outlinePaint.color = android.graphics.Color.parseColor("#FFD700") // Gold color
+                            outlinePaint.strokeWidth = 5f
+                            outlinePaint.alpha = 128 // Semi-transparent
+
+                            // Add dashed effect
+                            outlinePaint.pathEffect = android.graphics.DashPathEffect(floatArrayOf(10f, 5f), 0f)
+                        }
+
+                        currentPath.addPoint(GeoPoint(lastCompletedClue.latitude, lastCompletedClue.longitude))
+                        currentPath.addPoint(GeoPoint(nextClue.latitude, nextClue.longitude))
+
+                        mapView.overlays.add(currentPath)
                     }
 
-                    // Draw clue points
-                    cluePoints.forEach { clue ->
-                        // Draw circle for each clue point
-                        drawCircle(
-                            color = if (clue.isFound) SuccessGreen else Gold,
-                            radius = if (clue.isFound) 15f else 20f,
-                            center = Offset(clue.x, clue.y),
-                            style = if (clue.isFound) Stroke(width = 4f) else Stroke(width = 2f)
-                        )
-                        
-                        // Draw filled circle for current clue
-                        if (clue.isCurrent) {
-                            drawCircle(
-                                color = Gold,
-                                radius = 10f,
-                                center = Offset(clue.x, clue.y)
+                    // Add user location marker if available
+                    userLocation?.let { location ->
+                        val userMarker = Marker(mapView).apply {
+                            position = location
+                            title = "Your Location"
+                            icon = ContextCompat.getDrawable(
+                                context,
+                                android.R.drawable.ic_menu_mylocation
                             )
+                            setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+                        }
+                        mapView.overlays.add(userMarker)
+                    }
+
+                    // Update location if permission granted
+                    if (hasLocationPermission) {
+                        val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+                        try {
+                            // Check if GPS provider is enabled
+                            if (locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
+                                val locationListener = object : LocationListener {
+                                    override fun onLocationChanged(location: Location) {
+                                        userLocation = GeoPoint(location.latitude, location.longitude)
+                                        mapView.controller.animateTo(userLocation)
+                                        mapView.invalidate()
+                                    }
+
+                                    override fun onStatusChanged(provider: String?, status: Int, extras: android.os.Bundle?) {}
+                                    override fun onProviderEnabled(provider: String) {}
+                                    override fun onProviderDisabled(provider: String) {}
+                                }
+
+                                // Request location updates
+                                locationManager.requestLocationUpdates(
+                                    LocationManager.GPS_PROVIDER,
+                                    5000, // 5 seconds
+                                    10f,  // 10 meters
+                                    locationListener
+                                )
+
+                                // Get last known location
+                                locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)?.let { location ->
+                                    userLocation = GeoPoint(location.latitude, location.longitude)
+                                    mapView.controller.animateTo(userLocation)
+                                }
+                            }
+                        } catch (e: SecurityException) {
+                            // Handle permission exception
                         }
                     }
-                }
 
-                // Clue markers (interactive elements)
-                cluePoints.forEach { clue ->
-                    Box(
-                        modifier = Modifier
-                            .offset(
-                                x = ((clue.x * scale + offset.x) - 20).dp,
-                                y = ((clue.y * scale + offset.y) - 20).dp
-                            )
-                            .size(40.dp)
-                            .clip(CircleShape)
-                            .background(Color.Transparent)
-                            .clickable { selectedClue = clue }
-                    )
+                    mapView.invalidate()
                 }
-            }
+            )
 
-            // Map controls
+            // Only keep the location button
             Column(
                 modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(16.dp)
+                    .align(Alignment.BottomEnd)
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                // Zoom in button
                 FloatingActionButton(
-                    onClick = { scale = (scale * 1.2f).coerceIn(0.5f, 3f) },
+                    onClick = {
+                        mapViewRef.value?.controller?.zoomIn()
+                    },
                     containerColor = DarkSurface,
                     contentColor = Gold,
-                    modifier = Modifier.size(40.dp)
+                    modifier = Modifier.size(48.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.Add,
                         contentDescription = "Zoom In",
-                        modifier = Modifier.size(20.dp)
+                        modifier = Modifier.size(24.dp)
                     )
                 }
 
-                Spacer(modifier = Modifier.height(8.dp))
-
+                // Zoom out button
                 FloatingActionButton(
-                    onClick = { scale = (scale / 1.2f).coerceIn(0.5f, 3f) },
+                    onClick = {
+                        mapViewRef.value?.controller?.zoomOut()
+                    },
                     containerColor = DarkSurface,
                     contentColor = Gold,
-                    modifier = Modifier.size(40.dp)
+                    modifier = Modifier.size(48.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.Remove,
                         contentDescription = "Zoom Out",
-                        modifier = Modifier.size(20.dp)
+                        modifier = Modifier.size(24.dp)
                     )
                 }
 
-                Spacer(modifier = Modifier.height(8.dp))
-
+                // My location button
                 FloatingActionButton(
-                    onClick = { 
-                        scale = 1f
-                        offset = Offset.Zero
+                    onClick = {
+                        userLocation?.let { location ->
+                            mapViewRef.value?.controller?.animateTo(location)
+                        }
                     },
                     containerColor = DarkSurface,
                     contentColor = Gold,
-                    modifier = Modifier.size(40.dp)
+                    modifier = Modifier.size(48.dp)
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Refresh,
-                        contentDescription = "Reset View",
-                        modifier = Modifier.size(20.dp)
+                        imageVector = Icons.Default.MyLocation,
+                        contentDescription = "My Location",
+                        modifier = Modifier.size(24.dp)
                     )
                 }
             }
@@ -277,16 +355,16 @@ fun ClueMapScreen(
 
                         if (clue.isFound || clue.isCurrent) {
                             Spacer(modifier = Modifier.height(8.dp))
-                            
+
                             Text(
                                 text = clue.description,
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = TextWhite
                             )
-                            
+
                             if (clue.isCurrent) {
                                 Spacer(modifier = Modifier.height(8.dp))
-                                
+
                                 Box(
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -357,8 +435,8 @@ data class ClueMapPoint(
     val title: String,
     val description: String,
     val hint: String,
-    val x: Float,
-    val y: Float,
+    val latitude: Double,
+    val longitude: Double,
     val isFound: Boolean,
     val isCurrent: Boolean
 )
@@ -370,8 +448,8 @@ private fun getMockCluePoints(): List<ClueMapPoint> {
             title = "Starting Point",
             description = "The adventure begins at the campus entrance.",
             hint = "Look for the large stone sign.",
-            x = 150f,
-            y = 200f,
+            latitude = 33.6844,
+            longitude = 73.0479,
             isFound = true,
             isCurrent = false
         ),
@@ -380,8 +458,8 @@ private fun getMockCluePoints(): List<ClueMapPoint> {
             title = "The Ancient Library",
             description = "Find the oldest book in the library's special collection.",
             hint = "Check the glass display case on the second floor.",
-            x = 250f,
-            y = 300f,
+            latitude = 33.6900,
+            longitude = 73.0550,
             isFound = true,
             isCurrent = false
         ),
@@ -390,8 +468,8 @@ private fun getMockCluePoints(): List<ClueMapPoint> {
             title = "The Clock Tower",
             description = "Discover the secret behind the clock tower's unusual chimes.",
             hint = "Count the number of chimes at noon.",
-            x = 400f,
-            y = 250f,
+            latitude = 33.6950,
+            longitude = 73.0500,
             isFound = true,
             isCurrent = false
         ),
@@ -400,8 +478,8 @@ private fun getMockCluePoints(): List<ClueMapPoint> {
             title = "The Hidden Garden",
             description = "Find the rare flower that blooms only at midnight.",
             hint = "Look for a garden entrance behind the science building.",
-            x = 500f,
-            y = 350f,
+            latitude = 33.7000,
+            longitude = 73.0600,
             isFound = false,
             isCurrent = true
         ),
@@ -410,8 +488,8 @@ private fun getMockCluePoints(): List<ClueMapPoint> {
             title = "The Professor's Office",
             description = "Locate the professor's secret research notes.",
             hint = "The office is on the top floor of the mathematics building.",
-            x = 600f,
-            y = 200f,
+            latitude = 33.7050,
+            longitude = 73.0450,
             isFound = false,
             isCurrent = false
         ),
@@ -420,8 +498,8 @@ private fun getMockCluePoints(): List<ClueMapPoint> {
             title = "The Underground Tunnel",
             description = "Navigate the forgotten tunnels beneath the campus.",
             hint = "The entrance is hidden in the oldest dormitory's basement.",
-            x = 700f,
-            y = 400f,
+            latitude = 33.7100,
+            longitude = 73.0650,
             isFound = false,
             isCurrent = false
         ),
@@ -430,8 +508,8 @@ private fun getMockCluePoints(): List<ClueMapPoint> {
             title = "The Final Secret",
             description = "Uncover the ultimate mystery of the treasure hunt.",
             hint = "Return to where it all began, but look up instead of forward.",
-            x = 800f,
-            y = 300f,
+            latitude = 33.6844,
+            longitude = 73.0550,
             isFound = false,
             isCurrent = false
         )
