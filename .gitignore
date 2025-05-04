@@ -13,4 +13,5 @@
 .externalNativeBuild
 .cxx
 local.properties
-/server/node_modules
+/server/backend/node_modules
+/server/admin-portal/node_modules
