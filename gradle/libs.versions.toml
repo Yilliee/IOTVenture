@@ -1,5 +1,5 @@
 [versions]
-agp = "8.9.0"
+agp = "8.8.1"
 kotlin = "2.0.21"
 coreKtx = "1.15.0"
 junit = "4.13.2"
@@ -13,6 +13,10 @@ materialIconsExtended = "1.2.0"
 materialVersion = "1.12.0"
 navigationCompose = "2.8.9"
 navigationRuntimeKtx = "2.8.9"
+osmdroidAndroid = "6.1.16"
+roomCommonJvm = "2.7.1"
+scenecore = "1.0.0-alpha03"
+roomRuntimeAndroid = "2.7.1"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -35,6 +39,10 @@ androidx-navigation-runtime-ktx = { group = "androidx.navigation", name = "navig
 material = { module = "com.google.android.material:material", version.ref = "materialVersion" }
 material-icons-core = { module = "androidx.compose.material:material-icons-core", version.ref = "material" }
 material-icons-extended = { module = "androidx.compose.material:material-icons-extended", version.ref = "material" }
+osmdroid-android = { module = "org.osmdroid:osmdroid-android", version.ref = "osmdroidAndroid" }
+androidx-room-common-jvm = { group = "androidx.room", name = "room-common-jvm", version.ref = "roomCommonJvm" }
+androidx-scenecore = { group = "androidx.xr.scenecore", name = "scenecore", version.ref = "scenecore" }
+androidx-room-runtime-android = { group = "androidx.room", name = "room-runtime-android", version.ref = "roomRuntimeAndroid" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

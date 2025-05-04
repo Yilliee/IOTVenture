@@ -15,12 +15,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import dev.yilliee.iotventure.data.*
 import dev.yilliee.iotventure.ui.theme.*
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.first
 
 enum class TransferStatus {
     IDLE, SEARCHING, TRANSFERRING, SUCCESS, ERROR
@@ -30,83 +32,111 @@ enum class TransferMethod {
     BLUETOOTH, NEARBY_SHARE
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DeviceTransferScreen(
     onBackClick: () -> Unit,
     onTransferComplete: () -> Unit
 ) {
+    val context = LocalContext.current
+    val repository = remember { ChatRepository(context) }
     var transferMethod by remember { mutableStateOf(TransferMethod.BLUETOOTH) }
-    var encryptionEnabled by remember { mutableStateOf(true) }
+    var isEncrypted by remember { mutableStateOf(true) }
     var transferStatus by remember { mutableStateOf(TransferStatus.IDLE) }
     var statusMessage by remember { mutableStateOf("") }
     var transferProgress by remember { mutableStateOf(0f) }
-    val scope = rememberCoroutineScope()
+    var shouldStartTransfer by remember { mutableStateOf(false) }
+
+    // Handle transfer process
+    LaunchedEffect(shouldStartTransfer) {
+        if (shouldStartTransfer) {
+            transferStatus = TransferStatus.SEARCHING
+            statusMessage = "Searching for devices..."
+            
+            delay(2000)
+            transferStatus = TransferStatus.TRANSFERRING
+            statusMessage = "Transferring data..."
+            
+            // Simulate transfer progress
+            for (i in 1..10) {
+                delay(500)
+                transferProgress = i / 10f
+            }
+            
+            // Export chat messages
+            val messages = repository.getMessagesForHunt("current").first()
+            // In a real implementation, you would:
+            // 1. Serialize messages to JSON
+            // 2. Encrypt if needed
+            // 3. Transfer via selected method
+            // 4. Import on receiving device
+            
+            transferStatus = TransferStatus.SUCCESS
+            statusMessage = "Transfer complete!"
+            delay(2000)
+            onTransferComplete()
+        }
+    }
 
     Scaffold(
         topBar = {
-            DeviceTransferTopBar(
-                onBackClick = onBackClick,
-                isBackEnabled = transferStatus != TransferStatus.TRANSFERRING
+            TopAppBar(
+                title = { Text("Device Transfer") },
+                navigationIcon = {
+                    IconButton(onClick = onBackClick) {
+                        Icon(
+                            imageVector = Icons.Default.ArrowBack,
+                            contentDescription = "Back"
+                        )
+                    }
+                }
             )
         }
-    ) { paddingValues ->
+    ) { padding ->
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(paddingValues)
-                .padding(24.dp)
+                .padding(padding)
         ) {
             when (transferStatus) {
                 TransferStatus.IDLE -> {
-                    TransferOptionsContent(
+                    TransferOptions(
                         transferMethod = transferMethod,
-                        onTransferMethodChange = { transferMethod = it },
-                        encryptionEnabled = encryptionEnabled,
-                        onEncryptionChange = { encryptionEnabled = it },
-                        onStartTransfer = {
-                            transferStatus = TransferStatus.SEARCHING
-                            statusMessage = "Searching for nearby devices..."
-
-                            // Simulate finding devices
-                            scope.launch {
-                                delay(2000)
-                                transferStatus = TransferStatus.TRANSFERRING
-                                statusMessage = "Transferring game data..."
-
-                                // Simulate transfer progress
-                                repeat(10) {
-                                    delay(300)
-                                    transferProgress = (it + 1) / 10f
-                                }
-
-                                // Simulate transfer completion
-                                transferStatus = TransferStatus.SUCCESS
-                                statusMessage = "Transfer complete! You can now continue playing on the new device."
-                            }
-                        }
+                        isEncrypted = isEncrypted,
+                        onMethodChange = { transferMethod = it },
+                        onEncryptionChange = { isEncrypted = it },
+                        onStartTransfer = { shouldStartTransfer = true }
                     )
                 }
                 TransferStatus.SEARCHING -> {
-                    SearchingContent(statusMessage)
+                    TransferProgress(
+                        status = transferStatus,
+                        message = statusMessage,
+                        progress = transferProgress
+                    )
                 }
                 TransferStatus.TRANSFERRING -> {
-                    TransferringContent(
-                        statusMessage = statusMessage,
+                    TransferProgress(
+                        status = transferStatus,
+                        message = statusMessage,
                         progress = transferProgress
                     )
                 }
                 TransferStatus.SUCCESS -> {
-                    SuccessContent(
-                        statusMessage = statusMessage,
-                        onLogOut = onTransferComplete
+                    TransferProgress(
+                        status = transferStatus,
+                        message = statusMessage,
+                        progress = transferProgress
                     )
                 }
                 TransferStatus.ERROR -> {
-                    ErrorContent(
-                        statusMessage = statusMessage,
+                    TransferError(
+                        message = statusMessage,
                         onRetry = {
                             transferStatus = TransferStatus.IDLE
                             statusMessage = ""
+                            transferProgress = 0f
+                            shouldStartTransfer = false
                         }
                     )
                 }
@@ -116,50 +146,10 @@ fun DeviceTransferScreen(
 }
 
 @Composable
-fun DeviceTransferTopBar(
-    onBackClick: () -> Unit,
-    isBackEnabled: Boolean
-) {
-    Surface(
-        color = DarkSurface,
-        tonalElevation = 4.dp
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            IconButton(
-                onClick = onBackClick,
-                enabled = isBackEnabled,
-                modifier = Modifier.size(40.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.ArrowBack,
-                    contentDescription = "Back",
-                    tint = if (isBackEnabled) TextWhite else TextGray
-                )
-            }
-
-            Text(
-                text = "Device Transfer",
-                style = MaterialTheme.typography.titleMedium,
-                color = TextWhite
-            )
-
-            // Empty box for alignment
-            Box(modifier = Modifier.size(40.dp))
-        }
-    }
-}
-
-@Composable
-fun TransferOptionsContent(
+fun TransferOptions(
     transferMethod: TransferMethod,
-    onTransferMethodChange: (TransferMethod) -> Unit,
-    encryptionEnabled: Boolean,
+    isEncrypted: Boolean,
+    onMethodChange: (TransferMethod) -> Unit,
     onEncryptionChange: (Boolean) -> Unit,
     onStartTransfer: () -> Unit
 ) {
@@ -182,7 +172,7 @@ fun TransferOptionsContent(
             title = "Bluetooth",
             description = "Transfer directly to a nearby device",
             isSelected = transferMethod == TransferMethod.BLUETOOTH,
-            onClick = { onTransferMethodChange(TransferMethod.BLUETOOTH) }
+            onClick = { onMethodChange(TransferMethod.BLUETOOTH) }
         )
 
         Spacer(modifier = Modifier.height(12.dp))
@@ -193,7 +183,7 @@ fun TransferOptionsContent(
             title = "Nearby Share",
             description = "Use Android's Nearby Share feature",
             isSelected = transferMethod == TransferMethod.NEARBY_SHARE,
-            onClick = { onTransferMethodChange(TransferMethod.NEARBY_SHARE) }
+            onClick = { onMethodChange(TransferMethod.NEARBY_SHARE) }
         )
 
         Spacer(modifier = Modifier.height(24.dp))
@@ -252,7 +242,7 @@ fun TransferOptionsContent(
                     }
 
                     Switch(
-                        checked = encryptionEnabled,
+                        checked = isEncrypted,
                         onCheckedChange = onEncryptionChange,
                         colors = SwitchDefaults.colors(
                             checkedThumbColor = Gold,
@@ -369,31 +359,9 @@ fun TransferMethodOption(
 }
 
 @Composable
-fun SearchingContent(statusMessage: String) {
-    Column(
-        modifier = Modifier.fillMaxSize(),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        CircularProgressIndicator(
-            color = Gold,
-            modifier = Modifier.size(48.dp)
-        )
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        Text(
-            text = statusMessage,
-            style = MaterialTheme.typography.bodyLarge,
-            color = TextWhite,
-            textAlign = TextAlign.Center
-        )
-    }
-}
-
-@Composable
-fun TransferringContent(
-    statusMessage: String,
+fun TransferProgress(
+    status: TransferStatus,
+    message: String,
     progress: Float
 ) {
     Column(
@@ -401,84 +369,45 @@ fun TransferringContent(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Box(
-            modifier = Modifier.fillMaxWidth(),
-            contentAlignment = Alignment.Center
-        ) {
-            LinearProgressIndicator(
-                progress = { progress },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(8.dp)
-                    .clip(RoundedCornerShape(4.dp)),
-                color = Gold,
-                trackColor = DarkSurfaceLight
-            )
-        }
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        Text(
-            text = "${(progress * 100).toInt()}%",
-            style = MaterialTheme.typography.bodyLarge,
-            color = Gold,
-            fontWeight = FontWeight.Bold
-        )
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        Text(
-            text = statusMessage,
-            style = MaterialTheme.typography.bodyLarge,
-            color = TextWhite,
-            textAlign = TextAlign.Center
-        )
-    }
-}
-
-@Composable
-fun SuccessContent(
-    statusMessage: String,
-    onLogOut: () -> Unit
-) {
-    Column(
-        modifier = Modifier.fillMaxSize(),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        Icon(
-            imageVector = Icons.Default.CheckCircle,
-            contentDescription = "Success",
-            tint = SuccessGreen,
-            modifier = Modifier.size(64.dp)
-        )
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        Text(
-            text = statusMessage,
-            style = MaterialTheme.typography.bodyLarge,
-            color = SuccessGreen,
-            textAlign = TextAlign.Center
-        )
-
-        Spacer(modifier = Modifier.height(32.dp))
-
-        Button(
-            onClick = onLogOut,
-            colors = ButtonDefaults.buttonColors(
-                containerColor = SuccessGreen,
-                contentColor = DarkBackground
-            )
-        ) {
-            Text("Log Out")
+        when (status) {
+            TransferStatus.SEARCHING -> {
+                CircularProgressIndicator(
+                    color = Gold,
+                    modifier = Modifier.size(48.dp)
+                )
+            }
+            TransferStatus.TRANSFERRING -> {
+                Box(
+                    modifier = Modifier.fillMaxWidth(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    LinearProgressIndicator(
+                        progress = progress,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(8.dp)
+                            .clip(RoundedCornerShape(4.dp)),
+                        color = Gold,
+                        trackColor = DarkSurfaceLight
+                    )
+                }
+            }
+            else -> {
+                // Success and Error content
+                Text(
+                    text = message,
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = TextWhite,
+                    textAlign = TextAlign.Center
+                )
+            }
         }
     }
 }
 
 @Composable
-fun ErrorContent(
-    statusMessage: String,
+fun TransferError(
+    message: String,
     onRetry: () -> Unit
 ) {
     Column(
@@ -496,7 +425,7 @@ fun ErrorContent(
         Spacer(modifier = Modifier.height(24.dp))
 
         Text(
-            text = statusMessage,
+            text = message,
             style = MaterialTheme.typography.bodyLarge,
             color = ErrorRed,
             textAlign = TextAlign.Center

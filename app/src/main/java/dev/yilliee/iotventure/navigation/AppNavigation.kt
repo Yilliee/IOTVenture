@@ -2,25 +2,31 @@ package dev.yilliee.iotventure.navigation
 
 import androidx.compose.runtime.Composable
 import androidx.navigation.NavHostController
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import dev.yilliee.iotventure.screens.chat.TeamChatScreen
 import dev.yilliee.iotventure.screens.dashboard.GameDashboardScreen
 import dev.yilliee.iotventure.screens.emergency.EmergencyUnlockScreen
 import dev.yilliee.iotventure.screens.leaderboard.LeaderboardScreen
 import dev.yilliee.iotventure.screens.login.LoginScreen
+import dev.yilliee.iotventure.screens.map.ClueMapScreen
 import dev.yilliee.iotventure.screens.scan.ScanNfcScreen
 import dev.yilliee.iotventure.screens.settings.DeviceTransferScreen
+import dev.yilliee.iotventure.screens.team.TeamDetailsScreen
 
 object AppDestinations {
     const val LOGIN_ROUTE = "login"
     const val DASHBOARD_ROUTE = "dashboard"
     const val LEADERBOARD_ROUTE = "leaderboard"
-    const val TEAM_CHAT_ROUTE = "team_chat"
+    const val TEAM_CHAT_ROUTE = "team_chat/{huntId}"
     const val SCAN_NFC_ROUTE = "scan_nfc"
     const val EMERGENCY_UNLOCK_ROUTE = "emergency_unlock"
     const val DEVICE_TRANSFER_ROUTE = "device_transfer"
+    const val CLUE_MAP_ROUTE = "clue_map"
+    const val TEAM_DETAILS_ROUTE = "team_details"
 }
 
 @Composable
@@ -35,6 +41,7 @@ fun AppNavigation(
         composable(AppDestinations.LOGIN_ROUTE) {
             LoginScreen(
                 onLoginSuccess = {
+                    // Go directly to dashboard instead of hunts list
                     navController.navigate(AppDestinations.DASHBOARD_ROUTE) {
                         popUpTo(AppDestinations.LOGIN_ROUTE) { inclusive = true }
                     }
@@ -44,9 +51,9 @@ fun AppNavigation(
 
         composable(AppDestinations.DASHBOARD_ROUTE) {
             GameDashboardScreen(
-                onLeaderboardClick = { navController.navigate(AppDestinations.LEADERBOARD_ROUTE) },
-                onTeamChatClick = { navController.navigate(AppDestinations.TEAM_CHAT_ROUTE) },
-                onScanClick = { navController.navigate(AppDestinations.SCAN_NFC_ROUTE) },
+                onNavigateToScreen = { route ->
+                    navController.navigate(route)
+                },
                 onEmergencyClick = { navController.navigate(AppDestinations.EMERGENCY_UNLOCK_ROUTE) }
             )
         }
@@ -57,8 +64,14 @@ fun AppNavigation(
             )
         }
 
-        composable(AppDestinations.TEAM_CHAT_ROUTE) {
+        composable(
+            route = AppDestinations.TEAM_CHAT_ROUTE,
+            arguments = listOf(
+                navArgument("huntId") { type = NavType.StringType }
+            )
+        ) { backStackEntry ->
             TeamChatScreen(
+                huntId = backStackEntry.arguments?.getString("huntId") ?: "",
                 onBackClick = { navController.popBackStack() }
             )
         }
@@ -92,6 +105,17 @@ fun AppNavigation(
                 }
             )
         }
+
+        composable(AppDestinations.CLUE_MAP_ROUTE) {
+            ClueMapScreen(
+                onBackClick = { navController.popBackStack() }
+            )
+        }
+
+        composable(AppDestinations.TEAM_DETAILS_ROUTE) {
+            TeamDetailsScreen(
+                onBackClick = { navController.popBackStack() }
+            )
+        }
     }
 }
-
