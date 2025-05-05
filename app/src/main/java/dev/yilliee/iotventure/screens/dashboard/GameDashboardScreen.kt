@@ -94,6 +94,13 @@ fun GameDashboardScreen(
 
             Spacer(modifier = Modifier.height(20.dp))
 
+            // Leaderboard Button
+            LeaderboardButton(
+                onClick = { onNavigateToScreen(AppDestinations.LEADERBOARD_ROUTE) }
+            )
+
+            Spacer(modifier = Modifier.height(20.dp))
+
             // Device Transfer Button
             DeviceTransferButton(
                 onClick = { onNavigateToScreen(AppDestinations.DEVICE_TRANSFER_ROUTE) }
@@ -175,11 +182,12 @@ fun BottomNavBar(
     onTabSelected: (Int, String) -> Unit
 ) {
     val items = listOf(
-        BottomNavItem("Dashboard", Icons.Default.Home, ""),
+        BottomNavItem("", Icons.Default.Home, ""), // Removed "Dashboard" text
         BottomNavItem("Map", Icons.Default.Place, AppDestinations.CLUE_MAP_ROUTE),
         BottomNavItem("Scan", Icons.Default.QrCodeScanner, AppDestinations.SCAN_NFC_ROUTE),
         BottomNavItem("Chat", Icons.Default.Chat, AppDestinations.TEAM_CHAT_ROUTE),
-        BottomNavItem("Team", Icons.Default.Group, AppDestinations.TEAM_DETAILS_ROUTE)
+        BottomNavItem("Team", Icons.Default.Group, AppDestinations.TEAM_DETAILS_ROUTE),
+        BottomNavItem("Ranking", Icons.Default.EmojiEvents, AppDestinations.LEADERBOARD_ROUTE) // Changed from "Leaderboard" to "Ranking"
     )
 
     NavigationBar(
@@ -191,10 +199,14 @@ fun BottomNavBar(
                 icon = {
                     Icon(
                         imageVector = item.icon,
-                        contentDescription = item.title
+                        contentDescription = item.title.ifEmpty { "Home" }
                     )
                 },
-                label = { Text(item.title) },
+                label = {
+                    if (item.title.isNotEmpty()) {
+                        Text(item.title)
+                    }
+                },
                 selected = selectedTab == index,
                 onClick = { onTabSelected(index, item.route) },
                 colors = NavigationBarItemDefaults.colors(
@@ -356,6 +368,32 @@ fun ProgressSection(
                 color = TextGray
             )
         }
+    }
+}
+
+@Composable
+fun LeaderboardButton(
+    onClick: () -> Unit
+) {
+    Button(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth(),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = Gold,
+            contentColor = DarkBackground
+        )
+    ) {
+        Icon(
+            imageVector = Icons.Default.EmojiEvents,
+            contentDescription = "Ranking",
+            modifier = Modifier.size(20.dp)
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(
+            text = "View Ranking",
+            style = MaterialTheme.typography.bodyLarge,
+            fontWeight = FontWeight.Medium
+        )
     }
 }
 

@@ -49,18 +49,7 @@ fun LoginScreen(
             .background(MaterialTheme.colorScheme.background)
             .padding(20.dp)
     ) {
-        IconButton(
-            onClick = { showServerSettings = true },
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .size(48.dp)
-        ) {
-            Icon(
-                imageVector = Icons.Default.Settings,
-                contentDescription = "Server Settings",
-                tint = Gold
-            )
-        }
+        // Settings button
 
         Column(
             modifier = Modifier
@@ -123,7 +112,26 @@ fun LoginScreen(
                 }
             )
         }
+        Button(
+            onClick = { showServerSettings = true },
+            colors = ButtonDefaults.buttonColors(
+                containerColor = DarkSurface,
+                contentColor = Gold
+            ),
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .size(48.dp),
+            contentPadding = PaddingValues(0.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.Settings,
+                contentDescription = "Server Settings",
+                tint = Gold,
+                modifier = Modifier.size(24.dp)
+            )
+        }
 
+        // Server settings dialog
         if (showServerSettings) {
             ServerSettingsDialog(onDismiss = { showServerSettings = false })
         }

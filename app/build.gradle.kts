@@ -2,6 +2,7 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
+    kotlin("plugin.serialization") version "2.0.21"
 }
 
 android {
@@ -40,6 +41,13 @@ android {
 }
 
 dependencies {
+    // Kotlin Serialization
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.2")
+
+    // Location Services - Added for better location accuracy
+    implementation("com.google.android.gms:play-services-location:21.0.1")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.8.0")
+
     implementation(libs.osmdroid.android)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
@@ -62,5 +70,5 @@ dependencies {
     implementation(libs.material.icons.core)
     implementation(libs.material.icons.extended)
     implementation(libs.androidx.material)
-
+    implementation(libs.play.services.cronet)
 }

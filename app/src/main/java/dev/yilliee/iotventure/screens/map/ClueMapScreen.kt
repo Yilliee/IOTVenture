@@ -4,8 +4,6 @@ import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import android.location.Location
-import android.location.LocationListener
-import android.location.LocationManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -22,21 +20,23 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.Priority
+import com.google.android.gms.tasks.CancellationToken
+import com.google.android.gms.tasks.CancellationTokenSource
+import com.google.android.gms.tasks.OnTokenCanceledListener
 import dev.yilliee.iotventure.ui.theme.*
+import kotlinx.coroutines.launch
 import org.osmdroid.config.Configuration
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
 import org.osmdroid.views.overlay.Polyline
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalView
-import androidx.core.view.ViewCompat
-import androidx.core.view.WindowInsetsCompat
+import android.widget.Toast
 
 fun Context.findActivity(): android.app.Activity? = when (this) {
     is android.app.Activity -> this
@@ -51,33 +51,104 @@ fun ClueMapScreen(
     val context = LocalContext.current
     var selectedClue by remember { mutableStateOf<ClueMapPoint?>(null) }
     val cluePoints = remember { getMockCluePoints() }
+    val scope = rememberCoroutineScope()
 
-    // Location state
+    // 1. Create FusedLocationProviderClient
+    val fusedLocationClient = remember { LocationServices.getFusedLocationProviderClient(context) }
+
+    // 2. Location state
     var userLocation by remember { mutableStateOf<GeoPoint?>(null) }
-    var hasLocationPermission by remember { mutableStateOf(false) }
+    var isRefreshingLocation by remember { mutableStateOf(false) }
+
+    // 3. Permission state
+    var hasLocationPermission by remember {
+        mutableStateOf(
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.ACCESS_FINE_LOCATION
+            ) == PackageManager.PERMISSION_GRANTED
+        )
+    }
 
     // Create a reference to the MapView that can be accessed by the zoom buttons
     val mapViewRef = remember { mutableStateOf<MapView?>(null) }
 
-    // Check if we already have permission
-    LaunchedEffect(Unit) {
-        hasLocationPermission = ContextCompat.checkSelfPermission(
-            context,
-            Manifest.permission.ACCESS_FINE_LOCATION
-        ) == PackageManager.PERMISSION_GRANTED
-    }
-
-    // Request location permission
+    // 4. Permission launcher
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { isGranted ->
         hasLocationPermission = isGranted
+        if (isGranted) {
+            // Get location immediately after permission is granted
+            isRefreshingLocation = true
+
+            try {
+                // Create a cancellation token
+                val cancellationToken = object : CancellationToken() {
+                    override fun onCanceledRequested(listener: OnTokenCanceledListener) =
+                        CancellationTokenSource().token
+
+                    override fun isCancellationRequested() = false
+                }
+
+                // Request location
+                fusedLocationClient.getCurrentLocation(
+                    Priority.PRIORITY_HIGH_ACCURACY,
+                    cancellationToken
+                ).addOnSuccessListener { location: Location? ->
+                    location?.let {
+                        userLocation = GeoPoint(it.latitude, it.longitude)
+                        mapViewRef.value?.controller?.animateTo(userLocation)
+                    }
+                    isRefreshingLocation = false
+                }.addOnFailureListener { e ->
+                    Toast.makeText(context, "Could not get location: ${e.message}", Toast.LENGTH_SHORT).show()
+                    isRefreshingLocation = false
+                }
+            } catch (e: Exception) {
+                Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                isRefreshingLocation = false
+            }
+        } else {
+            Toast.makeText(context, "Location permission is required for accurate mapping", Toast.LENGTH_LONG).show()
+        }
     }
 
-    // Request permission if not granted
+    // 5. Request permission if not granted and get initial location
     LaunchedEffect(Unit) {
         if (!hasLocationPermission) {
             permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+        } else {
+            // If we already have permission, get location on first launch
+            isRefreshingLocation = true
+
+            try {
+                // Create a cancellation token
+                val cancellationToken = object : CancellationToken() {
+                    override fun onCanceledRequested(listener: OnTokenCanceledListener) =
+                        CancellationTokenSource().token
+
+                    override fun isCancellationRequested() = false
+                }
+
+                // Request location
+                fusedLocationClient.getCurrentLocation(
+                    Priority.PRIORITY_HIGH_ACCURACY,
+                    cancellationToken
+                ).addOnSuccessListener { location: Location? ->
+                    location?.let {
+                        userLocation = GeoPoint(it.latitude, it.longitude)
+                        mapViewRef.value?.controller?.animateTo(userLocation)
+                    }
+                    isRefreshingLocation = false
+                }.addOnFailureListener { e ->
+                    Toast.makeText(context, "Could not get location: ${e.message}", Toast.LENGTH_SHORT).show()
+                    isRefreshingLocation = false
+                }
+            } catch (e: Exception) {
+                Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                isRefreshingLocation = false
+            }
         }
     }
 
@@ -110,7 +181,7 @@ fun ClueMapScreen(
                         setBuiltInZoomControls(false)
 
                         // Set a higher zoom level (15.0 is city level, higher numbers = more zoomed in)
-                        controller.setZoom(15.0)
+                        controller.setZoom(16.0)
 
                         // Set initial position to Pakistan (if no location available)
                         val initialPoint = GeoPoint(30.3753, 69.3451) // Center of Pakistan
@@ -192,48 +263,27 @@ fun ClueMapScreen(
                         mapView.overlays.add(userMarker)
                     }
 
-                    // Update location if permission granted
-                    if (hasLocationPermission) {
-                        val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
-                        try {
-                            // Check if GPS provider is enabled
-                            if (locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
-                                val locationListener = object : LocationListener {
-                                    override fun onLocationChanged(location: Location) {
-                                        userLocation = GeoPoint(location.latitude, location.longitude)
-                                        mapView.controller.animateTo(userLocation)
-                                        mapView.invalidate()
-                                    }
-
-                                    override fun onStatusChanged(provider: String?, status: Int, extras: android.os.Bundle?) {}
-                                    override fun onProviderEnabled(provider: String) {}
-                                    override fun onProviderDisabled(provider: String) {}
-                                }
-
-                                // Request location updates
-                                locationManager.requestLocationUpdates(
-                                    LocationManager.GPS_PROVIDER,
-                                    5000, // 5 seconds
-                                    10f,  // 10 meters
-                                    locationListener
-                                )
-
-                                // Get last known location
-                                locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)?.let { location ->
-                                    userLocation = GeoPoint(location.latitude, location.longitude)
-                                    mapView.controller.animateTo(userLocation)
-                                }
-                            }
-                        } catch (e: SecurityException) {
-                            // Handle permission exception
-                        }
-                    }
-
                     mapView.invalidate()
                 }
             )
 
-            // Only keep the location button
+            // Loading indicator for location refresh
+            if (isRefreshingLocation) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .size(80.dp)
+                        .background(DarkSurface.copy(alpha = 0.7f), shape = CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator(
+                        color = Gold,
+                        modifier = Modifier.size(40.dp)
+                    )
+                }
+            }
+
+            // Map controls
             Column(
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
@@ -272,15 +322,48 @@ fun ClueMapScreen(
                     )
                 }
 
-                // My location button
+                // My location button - Updated to use FusedLocationProviderClient
                 FloatingActionButton(
                     onClick = {
-                        userLocation?.let { location ->
-                            mapViewRef.value?.controller?.animateTo(location)
+                        if (!isRefreshingLocation) {
+                            if (hasLocationPermission) {
+                                isRefreshingLocation = true
+
+                                try {
+                                    // Create a cancellation token
+                                    val cancellationToken = object : CancellationToken() {
+                                        override fun onCanceledRequested(listener: OnTokenCanceledListener) =
+                                            CancellationTokenSource().token
+
+                                        override fun isCancellationRequested() = false
+                                    }
+
+                                    // Request location
+                                    fusedLocationClient.getCurrentLocation(
+                                        Priority.PRIORITY_HIGH_ACCURACY,
+                                        cancellationToken
+                                    ).addOnSuccessListener { location: Location? ->
+                                        location?.let {
+                                            userLocation = GeoPoint(it.latitude, it.longitude)
+                                            mapViewRef.value?.controller?.animateTo(userLocation)
+                                        }
+                                        isRefreshingLocation = false
+                                    }.addOnFailureListener { e ->
+                                        Toast.makeText(context, "Could not get location: ${e.message}", Toast.LENGTH_SHORT).show()
+                                        isRefreshingLocation = false
+                                    }
+                                } catch (e: Exception) {
+                                    Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                                    isRefreshingLocation = false
+                                }
+                            } else {
+                                // Request permission if not granted
+                                permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+                            }
                         }
                     },
-                    containerColor = DarkSurface,
-                    contentColor = Gold,
+                    containerColor = if (isRefreshingLocation) Gold.copy(alpha = 0.5f) else DarkSurface,
+                    contentColor = if (isRefreshingLocation) DarkBackground else Gold,
                     modifier = Modifier.size(48.dp)
                 ) {
                     Icon(

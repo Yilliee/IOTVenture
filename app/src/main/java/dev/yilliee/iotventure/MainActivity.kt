@@ -3,6 +3,7 @@ package dev.yilliee.iotventure
 import android.content.Intent
 import android.nfc.NfcAdapter
 import android.os.Bundle
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.fillMaxSize
@@ -11,6 +12,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
+import androidx.core.view.WindowCompat
 import dev.yilliee.iotventure.navigation.AppNavigation
 import dev.yilliee.iotventure.ui.theme.IOTVentureTheme
 
@@ -22,6 +24,13 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Hide the status bar and make the app fullscreen
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        window.setFlags(
+            WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+            WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+        )
 
         // Check if the app was launched from an NFC intent
         if (isNfcIntent(intent)) {

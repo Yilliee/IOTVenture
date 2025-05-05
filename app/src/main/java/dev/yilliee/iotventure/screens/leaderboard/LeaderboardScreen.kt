@@ -134,7 +134,7 @@ fun LeaderboardScreen(
                         Spacer(modifier = Modifier.width(8.dp))
 
                         Text(
-                            text = "You're offline. Leaderboard will update when connected.",
+                            text = "You're offline. Ranking will update when connected.",
                             style = MaterialTheme.typography.bodySmall,
                             color = TextWhite
                         )
@@ -172,7 +172,7 @@ fun LeaderboardTopBar(
             }
 
             Text(
-                text = "Leaderboard",
+                text = "Ranking",
                 style = MaterialTheme.typography.titleLarge,
                 color = TextWhite,
                 modifier = Modifier.weight(1f),
@@ -318,4 +318,3 @@ data class TeamData(
     val time: String,
     val rank: Int
 )
-
