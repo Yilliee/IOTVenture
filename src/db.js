@@ -1,7 +1,16 @@
 import Database from "better-sqlite3"
 import crypto from "crypto"
 
-const db = new Database("database.sqlite", process.env.IOTVENTURE_BACKEND_DEBUG ? { verbose: console.log } : {});
+let db
+db = new Database("database.sqlite", process.env.IOTVENTURE_BACKEND_DEBUG ? { verbose: console.log } : {});
+
+export function getDb() {
+  return db;
+}
+
+export function setDb(newDb) {
+  db = newDb;
+}
 
 
 function initializeDatabase() {

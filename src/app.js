@@ -46,7 +46,7 @@ const authenticateAdmin = (req, res, next) => {
 
 // Middleware to check if the user is logged in
 const authenticateUser = (req, res, next) => {
-  const { deviceToken } = req.body
+  const deviceToken = req.body.deviceToken || req.query.deviceToken
 
   if (!deviceToken) {
     return res.status(401).json({ error: "Unauthorized" })
@@ -101,13 +101,13 @@ app.post("/api/admin/logout", authenticateAdmin, (req, res) => {
 
 // Team login endpoint (for mobile app)
 app.post("/api/team/login", (req, res) => {
-  const { device_name, username, password } = req.body
+  let { device_name, username, password } = req.body
 
   try {
     // Check if team exists and password is correct
-    const team = db.prepare("SELECT id, password FROM teams WHERE username = ?").get(username)
-
-    if (!team || verify_password(team.password, password)) {
+    const team = db.prepare("SELECT id, password FROM teams WHERE name = ?").get(username)
+    
+    if (!team || !verify_password(team.password, password)) {
       return res.status(401).json({ error: "WRONG_CREDS" })
     }
 
@@ -126,9 +126,6 @@ app.post("/api/team/login", (req, res) => {
     
     db.prepare("INSERT INTO users (team_id, username, device_token, last_active) VALUES (?, ?, ?, CURRENT_TIMESTAMP)")
       .run(team.id, device_name, deviceToken)
-    
-    // Create or update user
-    userId = existingUser.id
 
     // Get challenges
     const challenges = db
@@ -177,6 +174,7 @@ app.post("/api/team/login", (req, res) => {
 app.post("/api/update-leaderboard", authenticateUser, (req, res) => {
   const { deviceToken, solves, isFinalSubmission } = req.body
 
+
   try {
     // Verify device token
     const user = db.prepare("SELECT * FROM users WHERE device_token = ?").get(deviceToken)
@@ -186,10 +184,10 @@ app.post("/api/update-leaderboard", authenticateUser, (req, res) => {
     }
 
     const user_status = db
-      .prepare("SELECT made_final_submission FROM users WHERE user_id = ?")
+      .prepare("SELECT made_final_submission FROM users WHERE id = ?")
       .get(user.id)
 
-    if (!user_status.made_final_submission) {
+    if (user_status.made_final_submission) {
       return res.status(403).json({ error: "Already made final submission" })
     }
 
@@ -358,7 +356,7 @@ app.get("/api/admin/challenges", authenticateAdmin, (req, res) => {
 
 // Get messages endpoint (for mobile app)
 app.get("/api/messages", authenticateUser, (req, res) => {
-  const { deviceToken } = req.body
+  const deviceToken = req.body.deviceToken || req.query.deviceToken
 
   if (!deviceToken) {
     return res.status(401).json({ error: "No device token provided" })
@@ -441,7 +439,7 @@ app.get("/api/admin/teams", authenticateAdmin, (req, res) => {
 
 // Create team (admin only)
 app.post("/api/admin/teams", authenticateAdmin, (req, res) => {
-  const { name, password, maxMembers } = req.body
+  let { name, password, maxMembers } = req.body
 
   try {
     if ( !name || !password || !maxMembers ) {
@@ -525,7 +523,7 @@ app.get("/api/admin/teams/:id", authenticateAdmin, (req, res) => {
 // Update details of a team (admin only)
 app.put("/api/admin/teams/:id", authenticateAdmin, (req, res) => {
   const { id } = req.params
-  const { password, maxMembers } = req.body
+  let{ password, maxMembers } = req.body
 
   try {
     if ( !password && !maxMembers ) {
@@ -592,7 +590,6 @@ app.post('/api/admin/users/:id/force-submit', authenticateAdmin, (req, res) => {
       .prepare("UPDATE users SET made_final_submission = true WHERE id = (?)")
       .run(id)
     
-      console.log(result)
     return res.status(200).json({ 
       success: 'Yayayay'
     });
