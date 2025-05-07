@@ -10,11 +10,13 @@ const cookieParser = require("cookie-parser")
 const app = express()
 const PORT = process.env.BACKEND_PORT || 3000
 
-
+// Middleware
 app.use(
   cors({
-    origin: process.env.FRONTEND_URL || "http://localhost:3000",
+    origin: process.env.IOTVENTURE_FRONTEND_URL || "http://localhost:3000",
     credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"]
   }),
 )
 app.use(bodyParser.json())
@@ -103,60 +105,162 @@ function initializeDatabase() {
 
   if (adminsCount === 0) {
     // Insert admin user
-    db.prepare("INSERT INTO admins (username, password) VALUES (?, ?)").run("admin", "0af056adb0f926c3efd57d19ef3d6ca9:ee6585fabbe8ee80921d2fcf3ff9e2e7f7c2aab707b487ece2a6eebed3e048bdaee08fef3227bd404150bec24adf320fd2d58f5cde9b040a57119627002dd95d") // hello
+    db.prepare("INSERT INTO admins (username, password) VALUES (?, ?)").run(
+      "admin", "0af056adb0f926c3efd57d19ef3d6ca9:ee6585fabbe8ee80921d2fcf3ff9e2e7f7c2aab707b487ece2a6eebed3e048bdaee08fef3227bd404150bec24adf320fd2d58f5cde9b040a57119627002dd95d"
+    ) // hello
 
     // Insert sample teams
-    db.prepare("INSERT INTO teams (name, password, max_members) VALUES (?, ?, ?)").run(
-      "Tech Wizards",
-      "44fcb1a4247cc3892f52464eb97ca81f:09c9ee5294f0243a5d8dc7f850baa48e4ddebc169808c0a6f61616fe19f4bb0328ad91574e52c5b17c1cadb3352a8967427b6702785f43ce6d2af524d04d9f56",
-      8
-    ) // password123
-    db.prepare("INSERT INTO teams (name, password, max_members) VALUES (?, ?, ?)").run(
-      "Binary Bandits",
-      "795f44c781cfde89c788538fe1fc610e:3cf2bc9a3a81a76ba25e8807a6cb1a961e0d08a14be631cb85d61dc780da3684a58e503e6eb92c42578d5507dc1fd4faf57b1c764d78c6b159d1b567e3768b97",
-      8,
-    ) // password123
-    db.prepare("INSERT INTO teams (name, password, max_members) VALUES (?, ?, ?)").run(
-      "Circuit Breakers",
-      "d13395100f6618943f395f7cded24666:cb433ac9b5dc2d62f24bfd5cc4cf5614f6b979932a8228aa7950917974ad1c29738f3dc5e13ff3572ccc069ea53e376c18c93e86e48756318f9e97f0f73801d2",
-      8,
-    ) // password123
+    db.prepare("INSERT INTO teams (name, password, max_members) VALUES (?, ?, ?)")
+      .run("Tech Wizards", "c49b7d937237b5884a9cb1c7cea0cb28:33afb21dace89ce0baab12cdda282463dfb4793f1e13361c3176b348bcfc01d05016c8e116c8d879e71c1997be70fa285722e83da7cae0f0578d5049026693e7", 8) // password123
+    db.prepare("INSERT INTO teams (name, password, max_members) VALUES (?, ?, ?)")
+      .run("Code Ninjas", "cfede10dbe2a041d7d4133312ecb17e6:d394804351ee0aa5585438ff0f8665b551f096695733ad8f3524ff4b7ff9e4f60ae7e25bc25b794cde7068c71901baf04e56ca8d137280e437511e250a064e07", 8) // ninja456
+    db.prepare("INSERT INTO teams (name, password, max_members) VALUES (?, ?, ?)")
+      .run("Byte Squad", "0c1fcf019e665a98867a8ce17a9b4aa2:474fb33bf13625d488452e9254b9e851a6e1b088c28ec7a266eeffaed0d72cc6ffd4aa6b228e9862b5922b2526b5a54dd3a0f636c468b4667da2a88cd9e3fcc1", 8) // byte789
+    db.prepare("INSERT INTO teams (name, password, max_members) VALUES (?, ?, ?)")
+      .run("Pixel Warriors", "04474e29dab94f50eaabe5e06856eca5:1b87fca1d777573e18caf97ec2ee716de936e78b163cce0e3ee2740e95bd1c940c8edf5dbd757d2bd4d15c273419066af75c424dc96fbbf325323de6e4e06fa6", 8) // pixel123
+    db.prepare("INSERT INTO teams (name, password, max_members) VALUES (?, ?, ?)")
+      .run("Binary Masters", "9a1160a0ab163637f1748370f3b0dab3:c9d14c979e48b5f0a1008fe85e1972187c06f556b060d7439c5ee51431a7c1d0f9c1deef70a7a7bfa6511439b4b2fccd7c02c1d00b64b7aee67642fec8b4e7fd", 8) // binary456
 
-    db.prepare(`INSERT INTO challenges (name, short_name, points, location_top_left_lat, location_top_left_lng, location_bottom_right_lat, location_bottom_right_lng, key_hash) 
+    // Insert sample challenges
+    const challenges = [
+      {
+        name: "Find the Beacon",
+        short_name: "Beacon",
+        points: 100,
+        lat_top_left: 31.5204,
+        lng_top_left: 74.3587,
+        lat_bottom_right: 31.5174,
+        lng_bottom_right: 74.3617,
+        key_hash: "E74E9C8A" // NFC card hash
+      },
+      {
+        name: "Decode the Signal",
+        short_name: "Signal",
+        points: 150,
+        lat_top_left: 31.5234,
+        lng_top_left: 74.3375,
+        lat_bottom_right: 31.5204,
+        lng_bottom_right: 74.3405,
+        key_hash: "83D45519"
+      },
+      {
+        name: "Capture the Flag",
+        short_name: "CTF",
+        points: 200,
+        lat_top_left: 31.5344,
+        lng_top_left: 74.2945,
+        lat_bottom_right: 31.5314,
+        lng_bottom_right: 74.2975,
+        key_hash: "A7FE30C7"
+      },
+      {
+        name: "Hack the Network",
+        short_name: "Network",
+        points: 175,
+        lat_top_left: 31.5244,
+        lng_top_left: 74.3245,
+        lat_bottom_right: 31.5214,
+        lng_bottom_right: 74.3275,
+        key_hash: "5C03C770"
+      },
+      {
+        name: "Crack the Code",
+        short_name: "Code",
+        points: 125,
+        lat_top_left: 31.5284,
+        lng_top_left: 74.3145,
+        lat_bottom_right: 31.5254,
+        lng_bottom_right: 74.3175,
+        key_hash: "e5f6g7h8i9j0k1l2m3n4"
+      }
+    ];
+
+    const insertChallenge = db.prepare(`
+      INSERT INTO challenges (name, short_name, points, location_top_left_lat, location_top_left_lng, 
+                            location_bottom_right_lat, location_bottom_right_lng, key_hash) 
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run("Find the Beacon", "Beacon", 100, 48.8584, 2.2945, 48.8554, 2.2975, "a1b2c3d4e5f6g7h8i9j0")
+    `);
 
-    db.prepare(`
-      INSERT INTO challenges (name, short_name, points, location_top_left_lat, location_top_left_lng, location_bottom_right_lat, location_bottom_right_lng, key_hash) 
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run("Decode the Signal", "Signal", 150, 48.8614, 2.3375, 48.8584, 2.3405, "b2c3d4e5f6g7h8i9j0k1")
+    challenges.forEach(challenge => {
+      insertChallenge.run(
+        challenge.name,
+        challenge.short_name,
+        challenge.points,
+        challenge.lat_top_left,
+        challenge.lng_top_left,
+        challenge.lat_bottom_right,
+        challenge.lng_bottom_right,
+        challenge.key_hash
+      );
+    });
 
-    db.prepare(`
-      INSERT INTO challenges (name, short_name, points, location_top_left_lat, location_top_left_lng, location_bottom_right_lat, location_bottom_right_lng, key_hash) 
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run("Capture the Flag", "CTF", 200, 48.8744, 2.2945, 48.8714, 2.2975, "c3d4e5f6g7h8i9j0k1l2")
+    // Insert sample users for each team
+    const teams = db.prepare("SELECT id FROM teams").all();
+    teams.forEach(team => {
+      const deviceToken = crypto.randomBytes(32).toString("hex");
+      db.prepare("INSERT INTO users (team_id, username, device_token, last_active) VALUES (?, ?, ?, CURRENT_TIMESTAMP)")
+        .run(team.id, `user_${team.id}`, deviceToken);
+    });
 
-    db.prepare(`
-      INSERT INTO users (team_id, username, device_token, last_active)
-      VALUES (?, ?, ?, CURRENT_TIMESTAMP),
-             (?, ?, ?, CURRENT_TIMESTAMP)
-    `).run(
-      1, "alice", "token_alice_123",
-      2, "bob",   "token_bob_456"
-    );
+    // Insert sample solves
+    const users = db.prepare("SELECT id FROM users").all();
+    const challengeIds = db.prepare("SELECT id FROM challenges").all();
     
-    db.prepare(`
-      INSERT INTO solves (user_id, challenge_id, solved_at)
-      VALUES (?, ?, DATETIME('now', '-1 hour')),
-             (?, ?, DATETIME('now', '-30 minutes')),
-             (?, ?, DATETIME('now', '-2 hours'))
-    `).run(
-      1, 1,
-      1, 2,
-      2, 1
-    );
+    // Tech Wizards solved all challenges
+    db.prepare("INSERT INTO solves (user_id, challenge_id, solved_at) VALUES (?, ?, datetime('now', '-5 hours'))")
+      .run(users[0].id, challengeIds[0].id);
+    db.prepare("INSERT INTO solves (user_id, challenge_id, solved_at) VALUES (?, ?, datetime('now', '-4 hours'))")
+      .run(users[0].id, challengeIds[1].id);
+    db.prepare("INSERT INTO solves (user_id, challenge_id, solved_at) VALUES (?, ?, datetime('now', '-3 hours'))")
+      .run(users[0].id, challengeIds[2].id);
+    db.prepare("INSERT INTO solves (user_id, challenge_id, solved_at) VALUES (?, ?, datetime('now', '-2 hours'))")
+      .run(users[0].id, challengeIds[3].id);
+    db.prepare("INSERT INTO solves (user_id, challenge_id, solved_at) VALUES (?, ?, datetime('now', '-1 hour'))")
+      .run(users[0].id, challengeIds[4].id);
 
-    console.log("Sample data inserted")
+    // Code Ninjas solved 4 challenges
+    db.prepare("INSERT INTO solves (user_id, challenge_id, solved_at) VALUES (?, ?, datetime('now', '-4.5 hours'))")
+      .run(users[1].id, challengeIds[0].id);
+    db.prepare("INSERT INTO solves (user_id, challenge_id, solved_at) VALUES (?, ?, datetime('now', '-3.5 hours'))")
+      .run(users[1].id, challengeIds[1].id);
+    db.prepare("INSERT INTO solves (user_id, challenge_id, solved_at) VALUES (?, ?, datetime('now', '-2.5 hours'))")
+      .run(users[1].id, challengeIds[2].id);
+    db.prepare("INSERT INTO solves (user_id, challenge_id, solved_at) VALUES (?, ?, datetime('now', '-1.5 hours'))")
+      .run(users[1].id, challengeIds[3].id);
+
+    // Byte Squad solved 3 challenges
+    db.prepare("INSERT INTO solves (user_id, challenge_id, solved_at) VALUES (?, ?, datetime('now', '-4 hours'))")
+      .run(users[2].id, challengeIds[0].id);
+    db.prepare("INSERT INTO solves (user_id, challenge_id, solved_at) VALUES (?, ?, datetime('now', '-3 hours'))")
+      .run(users[2].id, challengeIds[1].id);
+    db.prepare("INSERT INTO solves (user_id, challenge_id, solved_at) VALUES (?, ?, datetime('now', '-2 hours'))")
+      .run(users[2].id, challengeIds[2].id);
+
+    // Pixel Warriors solved 2 challenges
+    db.prepare("INSERT INTO solves (user_id, challenge_id, solved_at) VALUES (?, ?, datetime('now', '-3.5 hours'))")
+      .run(users[3].id, challengeIds[0].id);
+    db.prepare("INSERT INTO solves (user_id, challenge_id, solved_at) VALUES (?, ?, datetime('now', '-2.5 hours'))")
+      .run(users[3].id, challengeIds[1].id);
+
+    // Binary Masters solved 1 challenge
+    db.prepare("INSERT INTO solves (user_id, challenge_id, solved_at) VALUES (?, ?, datetime('now', '-3 hours'))")
+      .run(users[4].id, challengeIds[0].id);
+
+    // Insert sample messages
+    const messages = [
+      { team_id: 1, content: "Found the first beacon!" },
+      { team_id: 2, content: "Working on the signal challenge" },
+      { team_id: 3, content: "Network challenge is tricky" },
+      { team_id: 4, content: "Just solved the code challenge" },
+      { team_id: 5, content: "CTF challenge completed!" }
+    ];
+
+    const insertMessage = db.prepare("INSERT INTO messages (team_id, content) VALUES (?, ?)");
+    messages.forEach(message => {
+      insertMessage.run(message.team_id, message.content);
+    });
+
+    console.log("Sample data inserted");
   }
 }
 
@@ -216,7 +320,6 @@ const authenticateUserWithCookie = (req, res, next) => {
   }
 }
 
-// Middleware to check if the user is logged in
 
 // Routes
 
@@ -246,9 +349,9 @@ app.post("/api/admin/login", (req, res) => {
   }
 })
 
+// Admin logout endpoint
 app.post("/api/admin/logout", (req, res) => {
-  // res.clearCookie("adminId")
-  res.deleteCookie("adminId")
+  res.clearCookie("adminId")
   res.json({ success: true })
 })
 
@@ -265,7 +368,7 @@ app.post("/api/team/login", (req, res) => {
     }
 
     // Check if team has reached max members
-    const userCount = db.prepare("SELECT COUNT(*) as count FROM users WHERE team_id = ?").get(teamId).count
+    const userCount = db.prepare("SELECT COUNT(*) as count FROM users WHERE team_id = ?").get(team.id).count
 
     if (userCount && userCount >= team.max_members) {
       return res.status(403).json({ error: "ACCOUNT_LIMIT_REACHED" })
@@ -273,38 +376,52 @@ app.post("/api/team/login", (req, res) => {
 
     if ( !device_name ) // randomly generate a device name
       device_name = `Device_${crypto.randomBytes(4).toString("hex")}`
-    
-    // Create new user
+
+    // Generate device token
     const deviceToken = crypto.randomBytes(32).toString("hex")
-    const result = db
-      .prepare("INSERT INTO users (team_id, username, device_token, last_active) VALUES (?, ?, ?, CURRENT_TIMESTAMP)")
-      .run(teamId, device_name, deviceToken)
+    
+    db.prepare("INSERT INTO users (team_id, username, device_token, last_active) VALUES (?, ?, ?, CURRENT_TIMESTAMP)")
+      .run(team.id, device_name, deviceToken)
+    
+    // Create or update user
+    userId = existingUser.id
 
     // Get challenges
     const challenges = db
       .prepare(`
-      SELECT id, name, short_name, points, 
-             location_top_left_lat, location_top_left_lng, 
-             location_bottom_right_lat, location_bottom_right_lng, 
-             key_hash
+      SELECT id, name, short_name as shortName, points, 
+             location_top_left_lat as "location.topLeft.lat", 
+             location_top_left_lng as "location.topLeft.lng", 
+             location_bottom_right_lat as "location.bottomRight.lat", 
+             location_bottom_right_lng as "location.bottomRight.lng", 
+             key_hash as keyHash
       FROM challenges
     `)
       .all()
 
+    // Format challenges to match the expected response
+    const formattedChallenges = challenges.map(challenge => ({
+      id: challenge.id,
+      name: challenge.name,
+      shortName: challenge.shortName,
+      points: challenge.points,
+      location: {
+        topLeft: {
+          lat: challenge["location.topLeft.lat"],
+          lng: challenge["location.topLeft.lng"]
+        },
+        bottomRight: {
+          lat: challenge["location.bottomRight.lat"],
+          lng: challenge["location.bottomRight.lng"]
+        }
+      },
+      keyHash: challenge.keyHash
+    }))
+
     res.json({
       deviceToken,
-      challenges: challenges.map((c) => ({
-        id: c.id,
-        name: c.name,
-        shortName: c.short_name,
-        points: c.points,
-        location: {
-          topLeft: { lat: c.location_top_left_lat, lng: c.location_top_left_lng },
-          bottomRight: { lat: c.location_bottom_right_lat, lng: c.location_bottom_right_lng },
-        },
-        keyHash: c.key_hash,
-      })),
-      serverTime: Date.now(),
+      challenges: formattedChallenges,
+      serverTime: Date.now()
     })
   } catch (error) {
     console.error("Team login error:", error)
@@ -344,11 +461,21 @@ app.post("/api/update-leaderboard", (req, res) => {
         const query = `SELECT * FROM solves WHERE user_id IN (${placeholders}) AND challenge_id = ?`
         const existingSolve = db.prepare(query).get(...users_in_curr_team, solve.challengeId)
         
-        if ( !existingSolve )
-          db.prepare("INSERT INTO solves (user_id, challenge_id) VALUES (?, ?)").run(
+        if ( !existingSolve ) {
+          db.prepare("INSERT INTO solves (user_id, challenge_id, solved_at) VALUES (?, ?, ?)").run(
             user.id,
             solve.challengeId,
+            solve.solvedAt
           )
+        }
+        else if ( existingSolve.solved_at > solve.solvedAt ) {
+          db.prepare("UPDATE solves SET solved_at = ?, user_id = ? WHERE user_id = ? AND challenge_id = ?").run(
+            solve.solvedAt,
+            user.id,
+            existingSolve.user_id,
+            existingSolve.challengeId,
+          )
+        }
       }
     });
 
@@ -368,9 +495,130 @@ app.post("/api/update-leaderboard", (req, res) => {
   }
 })
 
+// Get leaderboard (public)
+app.get("/api/leaderboard", (req, res) => {
+  try {
+    // Get teams with solve counts
+    const teams = db
+      .prepare(`
+      SELECT 
+        t.id, 
+        t.name,
+        (
+          SELECT SUM(c.points)
+          FROM solves s
+          JOIN users u2 ON s.user_id = u2.id
+          JOIN challenges c ON s.challenge_id = c.id
+          WHERE u2.team_id = t.id
+          GROUP BY u2.team_id
+        ) as total_points
+      FROM teams t
+      ORDER BY total_points DESC
+    `)
+      .all()
+
+    // Get challenges
+    const challenges = db.prepare("SELECT id, name, short_name, points FROM challenges").all()
+
+    // Get solves for each team
+    const teamSolves = []
+    for (const team of teams) {
+      const solves = db
+        .prepare(`
+        SELECT 
+          c.id as challenge_id,
+          MIN(s.solved_at) as first_solved_at
+        FROM solves s
+        JOIN users u ON s.user_id = u.id
+        JOIN challenges c ON s.challenge_id = c.id
+        WHERE u.team_id = ?
+        GROUP BY c.id
+      `)
+        .all(team.id)
+
+      teamSolves.push({
+        teamId: team.id,
+        name: team.name,
+        solves: solves.map((s) => ({
+          challengeId: s.challenge_id,
+          timestamp: new Date(s.first_solved_at).getTime(),
+          solved: true,
+        })),
+        totalPoints: team.total_points || 0,
+      })
+    }
+
+    const finalSubmissionsLeft = db
+    .prepare(`
+    SELECT COUNT(*) as count
+    FROM users
+    WHERE made_final_submission = 0
+  `)
+    .get()
+  const competitionEnded = finalSubmissionsLeft.count === 0
+
+    res.json({
+      challenges: challenges.map((c) => ({
+        id: c.id,
+        name: c.name,
+        shortName: c.short_name,
+        points: c.points,
+      })),
+      competitionEnded: competitionEnded,
+      teamSolves,
+    })
+  } catch (error) {
+    console.error("Get leaderboard error:", error)
+    res.status(500).json({ error: "Internal server error" })
+  }
+})
+
+// Get all challenges (admin only)
+app.get("/api/admin/challenges", authenticateAdmin, (req, res) => {
+  try {
+    const challenges = db
+      .prepare(`
+      SELECT 
+        id, 
+        name, 
+        short_name as shortName, 
+        points,
+        location_top_left_lat,
+        location_top_left_lng,
+        location_bottom_right_lat,
+        location_bottom_right_lng,
+        key_hash as keyHash
+      FROM challenges
+    `)
+      .all()
+
+    // Format the response to match the frontend expectations
+    const formattedChallenges = challenges.map((c) => ({
+      id: c.id.toString(),
+      name: c.name,
+      shortName: c.shortName,
+      points: c.points,
+      location: {
+        topLeft: { lat: c.location_top_left_lat, lng: c.location_top_left_lng },
+        bottomRight: { lat: c.location_bottom_right_lat, lng: c.location_bottom_right_lng },
+      },
+      keyHash: c.keyHash,
+    }))
+
+    res.json({ challenges: formattedChallenges })
+  } catch (error) {
+    console.error("Get challenges error:", error)
+    res.status(500).json({ error: "Internal server error" })
+  }
+})
+
 // Get messages endpoint (for mobile app)
 app.get("/api/messages", (req, res) => {
   const { deviceToken } = req.query
+
+  if (!deviceToken) {
+    return res.status(401).json({ error: "No device token provided" })
+  }
 
   try {
     // Verify device token
@@ -650,84 +898,6 @@ app.post("/api/admin/send-message", authenticateAdmin, (req, res) => {
   }
 })
 
-// Get leaderboard (public)
-app.get("/api/leaderboard", (req, res) => {
-  try {
-    // Get teams with solve counts
-    const teams = db
-      .prepare(`
-      SELECT 
-        t.id, 
-        t.name,
-        (
-          SELECT SUM(c.points)
-          FROM solves s
-          JOIN users u2 ON s.user_id = u2.id
-          JOIN challenges c ON s.challenge_id = c.id
-          WHERE u2.team_id = t.id
-          GROUP BY u2.team_id
-        ) as total_points
-      FROM teams t
-      ORDER BY total_points DESC
-    `)
-      .all()
-
-    // Get challenges
-    const challenges = db.prepare("SELECT id, name, short_name, points FROM challenges").all()
-
-    // Get solves for each team
-    const teamSolves = []
-    for (const team of teams) {
-      const solves = db
-        .prepare(`
-        SELECT 
-          c.id as challenge_id,
-          MIN(s.solved_at) as first_solved_at
-        FROM solves s
-        JOIN users u ON s.user_id = u.id
-        JOIN challenges c ON s.challenge_id = c.id
-        WHERE u.team_id = ?
-        GROUP BY c.id
-      `)
-        .all(team.id)
-
-      teamSolves.push({
-        teamId: team.id,
-        name: team.name,
-        solves: solves.map((s) => ({
-          challengeId: s.challenge_id,
-          timestamp: new Date(s.first_solved_at).getTime(),
-          solved: true,
-        })),
-        totalPoints: team.total_points || 0,
-      })
-    }
-
-    const finalSubmissionsLeft = db
-    .prepare(`
-    SELECT COUNT(*) as count
-    FROM users
-    WHERE made_final_submission = 0
-  `)
-    .get()
-  const competitionEnded = finalSubmissionsLeft.count === 0
-
-    res.json({
-      challenges: challenges.map((c) => ({
-        id: c.id,
-        name: c.name,
-        shortName: c.short_name,
-        points: c.points,
-      })),
-      competitionEnded: competitionEnded,
-      teamSolves,
-    })
-  } catch (error) {
-    console.error("Get leaderboard error:", error)
-    res.status(500).json({ error: "Internal server error" })
-  }
-})
-
 // Get all challenges (admin only)
 app.get("/api/admin/challenges", authenticateAdmin, (req, res) => {
   try {
@@ -993,6 +1163,7 @@ app.delete("/api/admin/challenges/:id", authenticateAdmin, (req, res) => {
   }
 })
 
+// Start server
 function startServer() {
   try {
     initializeDatabase()
