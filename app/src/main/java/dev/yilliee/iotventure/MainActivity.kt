@@ -81,7 +81,8 @@ class MainActivity : ComponentActivity() {
                             dev.yilliee.iotventure.navigation.AppDestinations.DASHBOARD_ROUTE
                         } else {
                             dev.yilliee.iotventure.navigation.AppDestinations.LOGIN_ROUTE
-                        }
+                        },
+                        context = this
                     )
                 }
             }

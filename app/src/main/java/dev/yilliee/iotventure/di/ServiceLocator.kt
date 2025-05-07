@@ -31,6 +31,10 @@ object ServiceLocator {
             val api = ApiService()
             val prefs = providePreferencesManager(context)
             api.updateServerSettings(prefs.getServerIp(), prefs.getServerPort())
+            // Set device token if available
+            prefs.getDeviceToken()?.let { token ->
+                api.setDeviceToken(token)
+            }
             api.also {
                 apiService = it
             }
@@ -77,5 +81,6 @@ object ServiceLocator {
         authRepository = null
         chatRepository = null
         gameRepository = null
+        apiService = null
     }
 }

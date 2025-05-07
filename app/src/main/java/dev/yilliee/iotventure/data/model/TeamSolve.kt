@@ -3,7 +3,7 @@ package dev.yilliee.iotventure.data.model
 import kotlinx.serialization.Serializable
 
 @Serializable
-data class TeamSolvesResponse(
-    val solves: List<TeamSolve>,
-    val serverTime: Long
+data class TeamSolve(
+    val challengeId: Int,
+    val solvedAt: String
 )

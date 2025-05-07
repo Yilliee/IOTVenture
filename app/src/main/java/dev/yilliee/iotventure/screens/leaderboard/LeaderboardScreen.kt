@@ -22,28 +22,92 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import dev.yilliee.iotventure.data.remote.ApiService
 import dev.yilliee.iotventure.ui.theme.*
+import dev.yilliee.iotventure.di.ServiceLocator
+import android.content.Context
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.*
 
 @Composable
 fun LeaderboardScreen(
-    onBackClick: () -> Unit
+    onBackClick: () -> Unit,
+    apiService: ApiService = remember { ApiService() },
+    context: Context
 ) {
     var teams by remember { mutableStateOf(emptyList<TeamData>()) }
     var isOnline by remember { mutableStateOf(true) }
-    var lastUpdated by remember { mutableStateOf("2 min ago") }
+    var lastUpdated by remember { mutableStateOf("Never") }
     var isRefreshing by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
     val rotationAngle by animateFloatAsState(
         targetValue = if (isRefreshing) 360f else 0f,
         label = "refreshRotation"
     )
     val scope = rememberCoroutineScope()
+    val preferencesManager = remember { ServiceLocator.providePreferencesManager(context) }
+    val userTeamName = remember { preferencesManager.getTeamName() }
 
-    // Load mock data on first composition
+    // Function to load leaderboard data
+    fun loadLeaderboardData() {
+        scope.launch {
+            isRefreshing = true
+            try {
+                apiService.getLeaderboard().fold(
+                    onSuccess = { response ->
+                        // Sort teams by points in descending order
+                        val sortedTeams = response.leaderboard.sortedByDescending { it.totalPoints }
+                        
+                        // Calculate ranks with ties
+                        var currentRank = 1
+                        var currentPoints = -1
+                        var skipCount = 0
+                        
+                        teams = sortedTeams.mapIndexed { index, team ->
+                            if (team.totalPoints != currentPoints) {
+                                currentRank = index + 1
+                                currentPoints = team.totalPoints
+                                skipCount = 0
+                            } else {
+                                skipCount++
+                            }
+                            
+                            TeamData(
+                                id = index + 1,
+                                name = team.teamName,
+                                rank = currentRank,
+                                points = team.totalPoints,
+                                solvedChallenges = team.solvedChallenges
+                            )
+                        }
+                        isOnline = true
+                        error = null
+                        lastUpdated = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
+                    },
+                    onFailure = { e ->
+                        isOnline = false
+                        error = e.message
+                    }
+                )
+            } catch (e: Exception) {
+                isOnline = false
+                error = e.message
+            } finally {
+                isRefreshing = false
+            }
+        }
+    }
+
+    // Initial load and auto-refresh every minute
     LaunchedEffect(key1 = Unit) {
-        loadLeaderboardData(teams) { newTeams ->
-            teams = newTeams
+        loadLeaderboardData()
+        while (true) {
+            delay(60000) // 1 minute
+            if (isOnline) {
+                loadLeaderboardData()
+            }
         }
     }
 
@@ -60,7 +124,7 @@ fun LeaderboardScreen(
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
-            // Last updated info
+            // Last updated info and refresh button
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -76,26 +140,30 @@ fun LeaderboardScreen(
                 )
 
                 IconButton(
-                    onClick = {
-                        if (!isRefreshing) {
-                            isRefreshing = true
-                            scope.launch {
-                                delay(1500)
-                                loadLeaderboardData(teams) { newTeams ->
-                                    teams = newTeams
-                                }
-                                lastUpdated = "Just now"
-                                isRefreshing = false
-                            }
-                        }
-                    },
-                    modifier = Modifier.size(32.dp)
+                    onClick = { loadLeaderboardData() },
+                    modifier = Modifier.size(32.dp),
+                    enabled = !isRefreshing
                 ) {
                     Icon(
                         imageVector = Icons.Default.Refresh,
                         contentDescription = "Refresh",
                         tint = Gold,
                         modifier = Modifier.rotate(rotationAngle)
+                    )
+                }
+            }
+
+            // Error message if any
+            error?.let { errorMessage ->
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    color = ErrorRed.copy(alpha = 0.2f)
+                ) {
+                    Text(
+                        text = errorMessage,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextWhite,
+                        modifier = Modifier.padding(16.dp)
                     )
                 }
             }
@@ -107,7 +175,7 @@ fun LeaderboardScreen(
                     .padding(16.dp)
             ) {
                 items(teams) { team ->
-                    TeamItem(team = team)
+                    TeamItem(team = team, userTeamName = userTeamName)
                     Spacer(modifier = Modifier.height(12.dp))
                 }
             }
@@ -134,7 +202,7 @@ fun LeaderboardScreen(
                         Spacer(modifier = Modifier.width(8.dp))
 
                         Text(
-                            text = "You're offline. Ranking will update when connected.",
+                            text = "You're offline. Leaderboard will update when connected.",
                             style = MaterialTheme.typography.bodySmall,
                             color = TextWhite
                         )
@@ -191,8 +259,8 @@ fun LeaderboardTopBar(
 }
 
 @Composable
-fun TeamItem(team: TeamData) {
-    val isUserTeam = team.id == 3 // Assuming user's team is Map Masters
+fun TeamItem(team: TeamData, userTeamName: String?) {
+    val isUserTeam = team.name == userTeamName
     val isTopThree = team.rank <= 3
 
     Card(
@@ -262,7 +330,7 @@ fun TeamItem(team: TeamData) {
                 )
 
                 Text(
-                    text = "${team.cluesSolved} clues • ${team.time}",
+                    text = "${team.solvedChallenges} clues • ${team.points}",
                     style = MaterialTheme.typography.bodySmall,
                     color = TextGray
                 )
@@ -273,7 +341,7 @@ fun TeamItem(team: TeamData) {
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Text(
-                    text = team.score.toString(),
+                    text = team.points.toString(),
                     style = MaterialTheme.typography.titleMedium,
                     color = if (isUserTeam) Gold else TextWhite,
                     fontWeight = FontWeight.Bold
@@ -289,32 +357,10 @@ fun TeamItem(team: TeamData) {
     }
 }
 
-private fun loadLeaderboardData(
-    currentTeams: List<TeamData>,
-    onDataLoaded: (List<TeamData>) -> Unit
-) {
-    // Mock data
-    val mockTeams = listOf(
-        TeamData(id = 1, name = "Treasure Hunters", score = 1250, cluesSolved = 15, time = "01:45:22", rank = 1),
-        TeamData(id = 2, name = "Gold Diggers", score = 1180, cluesSolved = 14, time = "01:50:15", rank = 2),
-        TeamData(id = 3, name = "Map Masters", score = 1050, cluesSolved = 13, time = "01:55:30", rank = 3),
-        TeamData(id = 4, name = "Puzzle Pirates", score = 980, cluesSolved = 12, time = "02:05:10", rank = 4),
-        TeamData(id = 5, name = "Clue Crew", score = 920, cluesSolved = 11, time = "02:10:45", rank = 5),
-        TeamData(id = 6, name = "Adventure Squad", score = 850, cluesSolved = 10, time = "02:15:20", rank = 6),
-        TeamData(id = 7, name = "Riddle Solvers", score = 780, cluesSolved = 9, time = "02:20:05", rank = 7),
-        TeamData(id = 8, name = "Code Breakers", score = 720, cluesSolved = 8, time = "02:25:30", rank = 8),
-        TeamData(id = 9, name = "Mystery Team", score = 650, cluesSolved = 7, time = "02:30:15", rank = 9),
-        TeamData(id = 10, name = "Treasure Seekers", score = 600, cluesSolved = 6, time = "02:35:40", rank = 10)
-    )
-
-    onDataLoaded(mockTeams)
-}
-
 data class TeamData(
     val id: Int,
     val name: String,
-    val score: Int,
-    val cluesSolved: Int,
-    val time: String,
-    val rank: Int
+    val rank: Int,
+    val points: Int,
+    val solvedChallenges: Int
 )

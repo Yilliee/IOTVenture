@@ -41,7 +41,8 @@ fun NfcResultDialog(
     status: ScanStatus,
     message: String,
     challenge: Challenge?,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    onScanComplete: () -> Unit
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -83,6 +84,7 @@ fun NfcResultDialog(
             Button(
                 onClick = {
                     onDismiss()
+                    onScanComplete() // This will navigate back to the dashboard
                 },
                 colors = ButtonDefaults.buttonColors(
                     containerColor = when(status) {
@@ -308,7 +310,9 @@ fun ScanNfcScreen(
                     validatedChallenge = null
                     gameRepository.clearNfcValidationResult()
                     // Don't call onScanComplete() here to keep the screen open
-                }
+
+                },
+                onScanComplete = onScanComplete
             )
         }
     }

@@ -4,12 +4,12 @@ import kotlinx.serialization.Serializable
 
 @Serializable
 data class LeaderboardResponse(
-    val leaderboard: List<LeaderboardEntry>,
+    val leaderboard: List<LeaderboardTeam>,
     val serverTime: Long
 )
 
 @Serializable
-data class LeaderboardEntry(
+data class LeaderboardTeam(
     val teamName: String,
     val solvedChallenges: Int,
     val totalPoints: Int

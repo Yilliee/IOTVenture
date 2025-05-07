@@ -16,6 +16,9 @@ import dev.yilliee.iotventure.screens.map.ClueMapScreen
 import dev.yilliee.iotventure.screens.scan.ScanNfcScreen
 import dev.yilliee.iotventure.screens.settings.DeviceTransferScreen
 import dev.yilliee.iotventure.screens.team.TeamDetailsScreen
+import dev.yilliee.iotventure.di.ServiceLocator
+import android.content.Context
+import androidx.compose.runtime.remember
 
 object AppDestinations {
     const val LOGIN_ROUTE = "login"
@@ -32,8 +35,11 @@ object AppDestinations {
 @Composable
 fun AppNavigation(
     navController: NavHostController = rememberNavController(),
-    startDestination: String = AppDestinations.LOGIN_ROUTE
+    startDestination: String = AppDestinations.LOGIN_ROUTE,
+    context: Context
 ) {
+    val apiService = remember { ServiceLocator.provideApiService(context) }
+
     NavHost(
         navController = navController,
         startDestination = startDestination
@@ -60,7 +66,9 @@ fun AppNavigation(
 
         composable(AppDestinations.LEADERBOARD_ROUTE) {
             LeaderboardScreen(
-                onBackClick = { navController.popBackStack() }
+                onBackClick = { navController.popBackStack() },
+                apiService = apiService,
+                context = context
             )
         }
 

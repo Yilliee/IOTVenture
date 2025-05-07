@@ -35,6 +35,7 @@ class ApiService {
     // Server configuration
     private var serverIp = "192.168.100.18"
     private var serverPort = "3000"
+    private var baseUrl = "http://$serverIp:$serverPort"
 
     // Authentication token
     private var deviceToken: String? = null
@@ -45,6 +46,7 @@ class ApiService {
     fun updateServerSettings(ip: String, port: String) {
         serverIp = ip
         serverPort = port
+        baseUrl = "http://$serverIp:$serverPort"
         Log.d(TAG, "Server settings updated to $serverIp:$serverPort")
     }
 
@@ -261,7 +263,7 @@ class ApiService {
         return withContext(Dispatchers.IO) {
             try {
                 val baseUrl = getBaseUrl()
-                Log.d(TAG, "Fetching leaderboard")
+                Log.d(TAG, "Fetching leaderboard data")
 
                 val url = URL("$baseUrl/api/leaderboard")
                 val connection = url.openConnection() as HttpURLConnection
