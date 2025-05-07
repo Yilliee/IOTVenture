@@ -17,6 +17,9 @@ import androidx.core.view.WindowCompat
 import dev.yilliee.iotventure.di.ServiceLocator
 import dev.yilliee.iotventure.navigation.AppNavigation
 import dev.yilliee.iotventure.ui.theme.IOTVentureTheme
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     // Create a companion object to hold the NFC intent state that can be observed by the ScanNfcScreen
@@ -24,6 +27,8 @@ class MainActivity : ComponentActivity() {
         private const val TAG = "MainActivity"
         val nfcIntent = mutableStateOf<Intent?>(null)
     }
+
+    private val coroutineScope = CoroutineScope(Dispatchers.Main)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -41,10 +46,12 @@ class MainActivity : ComponentActivity() {
         // Check if the app was launched from an NFC intent
         if (isNfcIntent(intent)) {
             nfcIntent.value = intent
+            Log.d(TAG, "App launched from NFC intent")
         }
 
         // Initialize repositories
         val authRepository = ServiceLocator.provideAuthRepository(this)
+        val gameRepository = ServiceLocator.provideGameRepository(this)
         val isLoggedIn = authRepository.isLoggedIn()
 
         Log.d(TAG, "User is logged in: $isLoggedIn")
@@ -52,6 +59,15 @@ class MainActivity : ComponentActivity() {
         if (isLoggedIn) {
             val username = authRepository.getUsername()
             Log.d(TAG, "Logged in user: $username")
+
+            // Try to submit any pending solves
+            coroutineScope.launch {
+                try {
+                    gameRepository.submitSolves()
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error submitting solves on app start", e)
+                }
+            }
         }
 
         setContent {
@@ -81,6 +97,41 @@ class MainActivity : ComponentActivity() {
             // Store the intent for later processing and update the state
             setIntent(intent)
             nfcIntent.value = intent
+            Log.d(TAG, "Received new NFC intent")
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+
+        // Try to submit any pending solves when app resumes
+        val gameRepository = ServiceLocator.provideGameRepository(this)
+        coroutineScope.launch {
+            try {
+                gameRepository.submitSolves()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error submitting solves on app resume", e)
+            }
+        }
+    }
+
+    // Add onDestroy method to clear data when app is closed
+    override fun onDestroy() {
+        super.onDestroy()
+
+        // Only clear data if this is a real app termination, not a configuration change
+        if (isFinishing) {
+            Log.d(TAG, "App is being destroyed (not for configuration change)")
+            coroutineScope.launch {
+                try {
+                    val authRepository = ServiceLocator.provideAuthRepository(this@MainActivity)
+                    // Logout and clear data
+                    authRepository.logout()
+                    Log.d(TAG, "User logged out and data cleared on app termination")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error during logout on app termination", e)
+                }
+            }
         }
     }
 

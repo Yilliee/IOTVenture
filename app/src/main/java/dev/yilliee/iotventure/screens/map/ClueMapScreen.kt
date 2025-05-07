@@ -81,7 +81,7 @@ fun ClueMapScreen(
             if (!osmdroidDir.exists()) {
                 osmdroidDir.mkdirs()
             }
-            
+
             Configuration.getInstance().apply {
                 osmdroidBasePath = osmdroidDir
                 osmdroidTileCache = osmdroidDir
@@ -136,7 +136,7 @@ fun ClueMapScreen(
         if (hasLocationPermission.value) {
             try {
                 val fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
-                
+
                 val locationRequest = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 10000)
                     .setMinUpdateIntervalMillis(5000)
                     .build()
@@ -147,7 +147,7 @@ fun ClueMapScreen(
                             val geoPoint = GeoPoint(location.latitude, location.longitude)
                             userLocation.value = geoPoint
                             Log.d("ClueMapScreen", "Location updated: $geoPoint")
-                            
+
                             if (shouldCenterOnUser.value) {
                                 mapViewRef.value?.controller?.animateTo(geoPoint)
                             } else  {
@@ -175,7 +175,7 @@ fun ClueMapScreen(
                         val geoPoint = GeoPoint(location.latitude, location.longitude)
                         userLocation.value = geoPoint
                         Log.d("ClueMapScreen", "Initial location: $geoPoint")
-                        
+
                         if (shouldCenterOnUser.value) {
                             mapViewRef.value?.controller?.animateTo(geoPoint)
                         }
@@ -206,10 +206,10 @@ fun ClueMapScreen(
                         setMultiTouchControls(true)
                         controller.setZoom(18.0)
                         mapViewRef.value = this
-                        
+
                         // Disable default OSMDroid buttons
                         zoomController.setVisibility(CustomZoomButtonsController.Visibility.NEVER)
-                        
+
                         try {
                             // Add location overlay
                             if (hasLocationPermission.value) {
@@ -261,13 +261,13 @@ fun ClueMapScreen(
                                     challenge.location.topLeft.lat,
                                     challenge.location.topLeft.lng
                                 )
-                                
+
                                 // Create polygon for challenge area
                                 val polygon = Polygon(mapView).apply {
                                     outlinePaint.color = dev.yilliee.iotventure.ui.theme.Gold.toArgb()
                                     outlinePaint.strokeWidth = 3f
                                     fillPaint.color = dev.yilliee.iotventure.ui.theme.Gold.copy(alpha = 0.2f).toArgb()
-                                    
+
                                     // Create rectangle points
                                     val points = listOf(
                                         GeoPoint(challenge.location.topLeft.lat, challenge.location.topLeft.lng),
@@ -278,14 +278,14 @@ fun ClueMapScreen(
                                     setPoints(points)
                                 }
                                 mapView.overlays.add(polygon)
-                                
+
                                 val marker = Marker(mapView).apply {
                                     position = geoPoint
                                     title = challenge.name
                                     snippet = "${challenge.points} points"
                                     setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
                                     icon = ContextCompat.getDrawable(context, R.drawable.ic_location_on)
-                                    
+
                                     setOnMarkerClickListener { _, _ ->
                                         selectedChallenge.value = challenge
                                         true

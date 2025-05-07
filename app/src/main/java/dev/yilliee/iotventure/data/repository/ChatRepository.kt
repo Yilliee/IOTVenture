@@ -1,5 +1,6 @@
 package dev.yilliee.iotventure.data.repository
 
+import android.util.Log
 import dev.yilliee.iotventure.data.local.PreferencesManager
 import dev.yilliee.iotventure.data.model.Message
 import dev.yilliee.iotventure.data.model.MessageStatus
@@ -15,20 +16,23 @@ class ChatRepository(
     private val apiService: ApiService,
     private val preferencesManager: PreferencesManager
 ) {
+    companion object {
+        private const val TAG = "ChatRepository"
+    }
 
+    /**
+     * Fetches messages from the server and updates local storage
+     */
     suspend fun fetchMessages(): Result<List<TeamMessage>> {
         return withContext(Dispatchers.IO) {
-            val deviceToken = preferencesManager.getDeviceToken()
-            if (deviceToken == null) {
-                return@withContext Result.failure(Exception("Not logged in"))
-            }
-
             try {
-                val result = apiService.getMessages(deviceToken)
+                Log.d(TAG, "Fetching messages from server")
+                val result = apiService.getMessages()
 
                 if (result.isSuccess) {
                     val response = result.getOrNull()
                     val serverMessages = response?.messages ?: emptyList()
+                    Log.d(TAG, "Received ${serverMessages.size} messages from server")
 
                     if (serverMessages.isNotEmpty()) {
                         // Convert server messages to TeamMessage format
@@ -48,21 +52,30 @@ class ChatRepository(
                     }
 
                     // If no new messages, return existing ones
+                    Log.d(TAG, "No new messages, returning cached messages")
                     return@withContext Result.success(preferencesManager.getTeamMessages())
                 } else {
+                    Log.e(TAG, "Error fetching messages: ${result.exceptionOrNull()?.message}")
                     return@withContext Result.failure(result.exceptionOrNull() ?: Exception("Unknown error"))
                 }
             } catch (e: Exception) {
                 // If network error, return cached messages
+                Log.e(TAG, "Network error fetching messages", e)
                 return@withContext Result.success(preferencesManager.getTeamMessages())
             }
         }
     }
 
+    /**
+     * Gets locally stored messages
+     */
     fun getLocalMessages(): List<TeamMessage> {
         return preferencesManager.getTeamMessages()
     }
 
+    /**
+     * Adds a new message to local storage
+     */
     fun addLocalMessage(text: String): TeamMessage {
         val existingMessages = preferencesManager.getTeamMessages()
         val newId = if (existingMessages.isEmpty()) 1 else existingMessages.maxOf { it.id } + 1
@@ -80,14 +93,22 @@ class ChatRepository(
 
         val updatedMessages = existingMessages + newMessage
         preferencesManager.saveTeamMessages(updatedMessages)
+        Log.d(TAG, "Added new local message: $text")
 
         return newMessage
     }
 
+    /**
+     * Clears all messages from local storage
+     */
     fun clearMessages() {
         preferencesManager.saveTeamMessages(emptyList())
+        Log.d(TAG, "Cleared all messages")
     }
 
+    /**
+     * Converts server message format to local TeamMessage format
+     */
     private fun convertServerMessages(serverMessages: List<Message>): List<TeamMessage> {
         val username = preferencesManager.getUsername() ?: "You"
 
@@ -103,13 +124,16 @@ class ChatRepository(
         }
     }
 
+    /**
+     * Formats server timestamp to a user-friendly format
+     */
     private fun formatServerTimestamp(timestamp: String): String {
-        // Simple format for now, can be improved later
         return try {
             val inputFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US)
             val date = inputFormat.parse(timestamp)
             SimpleDateFormat("hh:mm a", Locale.getDefault()).format(date ?: Date())
         } catch (e: Exception) {
+            Log.e(TAG, "Error formatting timestamp", e)
             // Fallback to original timestamp if parsing fails
             timestamp
         }

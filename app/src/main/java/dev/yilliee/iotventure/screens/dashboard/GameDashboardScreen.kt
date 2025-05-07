@@ -24,6 +24,7 @@ import dev.yilliee.iotventure.navigation.AppDestinations
 import dev.yilliee.iotventure.ui.theme.*
 import dev.yilliee.iotventure.data.model.Challenge
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import java.util.concurrent.TimeUnit
 import androidx.compose.foundation.BorderStroke
@@ -55,15 +56,41 @@ fun GameDashboardScreen(
         }
     }
 
-    val challenges by gameRepository.getChallenges().collectAsState(initial = emptyList())
-    val solvedChallengeIds = remember { mutableStateOf(setOf<Int>()) }
+    var challenges by remember { mutableStateOf<List<Challenge>>(emptyList()) }
+    var solvedChallengeIds by remember { mutableStateOf<Set<Int>>(emptySet()) }
+    var completionPercentage by remember { mutableStateOf(0) }
 
-    // Update solved challenges whenever the screen recomposes
-    LaunchedEffect(challenges) {
-        solvedChallengeIds.value = preferencesManager.getSolvedChallenges()
+    // Collect challenges and solved challenges
+    LaunchedEffect(Unit) {
+        gameRepository.challenges.collectLatest {
+            challenges = it
+            println("Challenges received: $it")
+        }
     }
 
-    val completedChallenges = solvedChallengeIds.value.size
+    LaunchedEffect(Unit) {
+        gameRepository.solvedChallenges.collectLatest {
+            solvedChallengeIds = it
+            completionPercentage = gameRepository.getCompletionPercentage()
+        }
+    }
+
+    // Add this LaunchedEffect to explicitly load challenges when the dashboard appears
+    LaunchedEffect(Unit) {
+        // Explicitly load challenges from preferences
+        gameRepository.loadChallengesFromPreferences()
+
+        // Try to submit any pending solves when dashboard is shown
+        scope.launch {
+            try {
+                gameRepository.submitSolves()
+            } catch (e: Exception) {
+                // Ignore errors, will try again later
+            }
+        }
+    }
+
+    val completedChallenges = solvedChallengeIds.size
     val totalChallenges = challenges.size
 
     // Get game start time from preferences
@@ -120,7 +147,8 @@ fun GameDashboardScreen(
             // Progress Card
             ProgressCard(
                 completedClues = completedChallenges,
-                totalClues = totalChallenges
+                totalClues = totalChallenges,
+                percentage = completionPercentage
             )
 
             Spacer(modifier = Modifier.height(24.dp))
@@ -133,24 +161,307 @@ fun GameDashboardScreen(
                 modifier = Modifier.padding(bottom = 12.dp)
             )
 
-            challenges.forEach { challenge ->
-                ChallengeCard(
-                    challenge = challenge,
-                    isCompleted = solvedChallengeIds.value.contains(challenge.id),
-                    onClick = {
-                        // Navigate to map screen with the selected challenge ID
-                        val route = "clue_map/${challenge.id}"
-                        onNavigateToScreen(route)
+            if (challenges.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(100.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator(color = Gold)
+                }
+            } else if (challenges.all { solvedChallengeIds.contains(it.id) }) {
+                // All challenges completed
+                AllChallengesCompletedCard()
+            } else {
+                // Filter to show only unsolved challenges
+                val availableChallenges = challenges.filter { !solvedChallengeIds.contains(it.id) }
+
+                if (availableChallenges.isEmpty()) {
+                    AllChallengesCompletedCard()
+                } else {
+                    availableChallenges.forEach { challenge ->
+                        ChallengeCard(
+                            challenge = challenge,
+                            isCompleted = solvedChallengeIds.contains(challenge.id),
+                            onClick = {
+                                // Navigate to map screen with the selected challenge ID
+                                val route = "clue_map/${challenge.id}"
+                                onNavigateToScreen(route)
+                            }
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
                     }
-                )
-                Spacer(modifier = Modifier.height(12.dp))
+                }
             }
 
             Spacer(modifier = Modifier.height(24.dp))
 
+            // Solved Challenges Section
+            if (solvedChallengeIds.isNotEmpty()) {
+                Text(
+                    text = "Solved Challenges",
+                    style = MaterialTheme.typography.titleLarge,
+                    color = SuccessGreen,
+                    modifier = Modifier.padding(bottom = 12.dp)
+                )
+
+                val solvedChallenges = challenges.filter { solvedChallengeIds.contains(it.id) }
+                solvedChallenges.forEach { challenge ->
+                    SolvedChallengeCard(
+                        challenge = challenge,
+                        onClick = {
+                            // Navigate to map screen with the selected challenge ID
+                            val route = "clue_map/${challenge.id}"
+                            onNavigateToScreen(route)
+                        }
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                }
+
+                Spacer(modifier = Modifier.height(24.dp))
+            }
+
             // Leaderboard Button
             LeaderboardButton(
                 onClick = { onNavigateToScreen(AppDestinations.LEADERBOARD_ROUTE) }
+            )
+
+            // Solve Queue Status
+            val solveQueue = gameRepository.getSolveQueue()
+            if (solveQueue.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(16.dp))
+                SolveQueueCard(
+                    queueSize = solveQueue.size,
+                    onSyncClick = {
+                        scope.launch {
+                            gameRepository.submitSolves()
+                        }
+                    }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun SolveQueueCard(
+    queueSize: Int,
+    onSyncClick: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = DarkSurface
+        ),
+        shape = MaterialTheme.shapes.large
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = "Pending Sync",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = Gold
+                )
+
+                Text(
+                    text = "$queueSize ${if (queueSize == 1) "challenge" else "challenges"} pending",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = TextGray
+                )
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Button(
+                onClick = onSyncClick,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Gold,
+                    contentColor = DarkBackground
+                ),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Sync,
+                    contentDescription = "Sync",
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Sync with Server")
+            }
+        }
+    }
+}
+
+@Composable
+fun AllChallengesCompletedCard() {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = DarkSurface
+        ),
+        shape = MaterialTheme.shapes.large
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Icon(
+                imageVector = Icons.Default.EmojiEvents,
+                contentDescription = "Trophy",
+                tint = Gold,
+                modifier = Modifier.size(48.dp)
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Text(
+                text = "All Challenges Completed!",
+                style = MaterialTheme.typography.titleLarge,
+                color = Gold,
+                fontWeight = FontWeight.Bold
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Text(
+                text = "Congratulations! You've solved all available challenges.",
+                style = MaterialTheme.typography.bodyLarge,
+                color = TextWhite,
+                textAlign = TextAlign.Center
+            )
+        }
+    }
+}
+
+@Composable
+fun SolvedChallengeCard(
+    challenge: Challenge,
+    onClick: () -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+        colors = CardDefaults.cardColors(
+            containerColor = DarkSurface
+        ),
+        shape = MaterialTheme.shapes.large
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = challenge.name,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = TextWhite
+                )
+                Icon(
+                    imageVector = Icons.Default.CheckCircle,
+                    contentDescription = "Completed",
+                    tint = SuccessGreen
+                )
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Text(
+                text = challenge.shortName,
+                style = MaterialTheme.typography.bodyMedium,
+                color = TextGray
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "${challenge.points} points",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = SuccessGreen
+                )
+
+                Icon(
+                    imageVector = Icons.Default.ArrowForward,
+                    contentDescription = "View Challenge",
+                    tint = SuccessGreen
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun ProgressCard(
+    completedClues: Int,
+    totalClues: Int,
+    percentage: Int
+) {
+    val progress = if (totalClues > 0) completedClues.toFloat() / totalClues.toFloat() else 0f
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = DarkSurface
+        ),
+        shape = MaterialTheme.shapes.large
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Your Progress",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = TextWhite
+                )
+                Text(
+                    text = "$percentage%",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = Gold,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            LinearProgressIndicator(
+                progress = { progress },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(8.dp)
+                    .clip(RoundedCornerShape(4.dp)),
+                color = Gold,
+                trackColor = DarkSurfaceLight
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Text(
+                text = "$completedClues of $totalClues challenges completed",
+                style = MaterialTheme.typography.bodyMedium,
+                color = TextGray
             )
         }
     }
@@ -377,65 +688,6 @@ fun ClueCard(
                     fontWeight = FontWeight.Bold
                 )
             }
-        }
-    }
-}
-
-@Composable
-fun ProgressCard(
-    completedClues: Int,
-    totalClues: Int
-) {
-    val progress = if (totalClues > 0) completedClues.toFloat() / totalClues.toFloat() else 0f
-    val percentage = (progress * 100).toInt()
-
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = DarkSurface
-        ),
-        shape = MaterialTheme.shapes.large
-    ) {
-        Column(
-            modifier = Modifier.padding(20.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "Your Progress",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = TextWhite
-                )
-                Text(
-                    text = "$percentage%",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = Gold,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            LinearProgressIndicator(
-                progress = { progress },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(8.dp)
-                    .clip(RoundedCornerShape(4.dp)),
-                color = Gold,
-                trackColor = DarkSurfaceLight
-            )
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            Text(
-                text = "$completedClues of $totalClues challenges completed",
-                style = MaterialTheme.typography.bodyMedium,
-                color = TextGray
-            )
         }
     }
 }

@@ -48,6 +48,8 @@ class IOTVentureApplication : Application() {
                 isActivityChangingConfigurations = activity.isChangingConfigurations
                 if (--activityReferences == 0 && !isActivityChangingConfigurations) {
                     Log.d(TAG, "App entered background")
+                    // When app goes to background, prepare for potential termination
+                    performLogout()
                 }
             }
 

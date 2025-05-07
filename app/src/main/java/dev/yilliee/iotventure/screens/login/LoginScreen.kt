@@ -11,6 +11,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -25,14 +26,12 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import dev.yilliee.iotventure.di.ServiceLocator
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import dev.yilliee.iotventure.ui.theme.DarkSurface
 import dev.yilliee.iotventure.ui.theme.Gold
 import dev.yilliee.iotventure.ui.theme.TextGray
-import kotlinx.coroutines.launch
 import android.util.Log
+import android.widget.Toast
 
 @Composable
 fun LoginScreen(
@@ -42,7 +41,10 @@ fun LoginScreen(
     val preferencesManager = remember { ServiceLocator.providePreferencesManager(context) }
     val apiService = remember { ServiceLocator.provideApiService(context) }
     val authRepository = remember { ServiceLocator.provideAuthRepository(context) }
-    val viewModel = remember { LoginViewModel.Factory(authRepository).create(LoginViewModel::class.java) }
+    val gameRepository = remember { ServiceLocator.provideGameRepository(context) }
+    val viewModel = remember {
+        LoginViewModel.Factory(authRepository, gameRepository).create(LoginViewModel::class.java)
+    }
 
     var username by rememberSaveable { mutableStateOf("") }
     var password by rememberSaveable { mutableStateOf("") }
@@ -65,6 +67,15 @@ fun LoginScreen(
             is LoginViewModel.LoginState.Success -> {
                 onLoginSuccess()
                 viewModel.resetState()
+            }
+            is LoginViewModel.LoginState.ConnectionSuccess -> {
+                // Show a toast or snackbar for successful connection
+                Toast.makeText(context, "Server connection successful!", Toast.LENGTH_SHORT).show()
+            }
+            is LoginViewModel.LoginState.ConnectionError -> {
+                // Show a toast or snackbar for connection error
+                val errorMessage = (loginState as LoginViewModel.LoginState.ConnectionError).message
+                Toast.makeText(context, "Connection error: $errorMessage", Toast.LENGTH_LONG).show()
             }
             else -> { /* No action needed */ }
         }
@@ -121,16 +132,18 @@ fun LoginScreen(
                 onUsernameChange = { username = it },
                 password = password,
                 onPasswordChange = { password = it },
-                isLoading = loginState is LoginViewModel.LoginState.Loading,
-                errorMessage = if (loginState is LoginViewModel.LoginState.Error) {
-                    (loginState as LoginViewModel.LoginState.Error).message
-                } else {
-                    ""
+                isLoading = loginState is LoginViewModel.LoginState.Loading || loginState is LoginViewModel.LoginState.Testing,
+                errorMessage = when (loginState) {
+                    is LoginViewModel.LoginState.Error -> (loginState as LoginViewModel.LoginState.Error).message
+                    else -> ""
                 },
                 onSubmit = {
                     scope.launch {
                         viewModel.login(username, password)
                     }
+                },
+                onTestConnection = {
+                    viewModel.testServerConnection()
                 }
             )
 
@@ -166,7 +179,17 @@ fun LoginScreen(
 
         // Server settings dialog
         if (showServerSettings) {
-            ServerSettingsDialog(onDismiss = { showServerSettings = false })
+            ServerSettingsDialog(
+                onDismiss = { showServerSettings = false },
+                onSave = { ip, port ->
+                    // Update server settings and test connection
+                    preferencesManager.saveServerSettings(ip, port)
+                    apiService.updateServerSettings(ip, port)
+                    scope.launch {
+                        viewModel.testServerConnection()
+                    }
+                }
+            )
         }
     }
 }
@@ -179,7 +202,8 @@ private fun LoginContent(
     onPasswordChange: (String) -> Unit,
     isLoading: Boolean,
     errorMessage: String,
-    onSubmit: () -> Unit
+    onSubmit: () -> Unit,
+    onTestConnection: () -> Unit
 ) {
     // Add a note about teamId
     Text(
@@ -263,6 +287,26 @@ private fun LoginContent(
             Text("Login", style = MaterialTheme.typography.titleMedium)
         }
     }
+
+    // Add test connection button
+    Spacer(Modifier.height(16.dp))
+    OutlinedButton(
+        onClick = onTestConnection,
+        enabled = !isLoading,
+        modifier = Modifier.fillMaxWidth(),
+        colors = ButtonDefaults.outlinedButtonColors(
+            contentColor = Gold
+        )
+    ) {
+        Icon(
+            imageVector = Icons.Default.Wifi,
+            contentDescription = "Test Connection",
+            modifier = Modifier.size(20.dp)
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Text("Test Server Connection")
+    }
+
     Spacer(Modifier.height(24.dp))
     Text(
         text = "Game works offline after initial login",
@@ -274,10 +318,12 @@ private fun LoginContent(
 }
 
 @Composable
-fun ServerSettingsDialog(onDismiss: () -> Unit) {
+fun ServerSettingsDialog(
+    onDismiss: () -> Unit,
+    onSave: (String, String) -> Unit
+) {
     val context = LocalContext.current
     val preferencesManager = remember { ServiceLocator.providePreferencesManager(context) }
-    val apiService = remember { ServiceLocator.provideApiService(context) }
 
     var serverIp by rememberSaveable { mutableStateOf(preferencesManager.getServerIp()) }
     var serverPort by rememberSaveable { mutableStateOf(preferencesManager.getServerPort()) }
@@ -324,10 +370,8 @@ fun ServerSettingsDialog(onDismiss: () -> Unit) {
         confirmButton = {
             Button(
                 onClick = {
-                    // Save settings
-                    preferencesManager.saveServerSettings(serverIp, serverPort)
-                    // Update API service with new settings
-                    apiService.updateServerSettings(serverIp, serverPort)
+                    // Save settings and call the callback
+                    onSave(serverIp, serverPort)
                     Log.d("ServerSettings", "Saved server settings: $serverIp:$serverPort")
                     onDismiss()
                 },

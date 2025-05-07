@@ -3,13 +3,10 @@ package dev.yilliee.iotventure.screens.scan
 import android.app.PendingIntent
 import android.content.Intent
 import android.content.IntentFilter
-import android.nfc.NdefMessage
-import android.nfc.NdefRecord
 import android.nfc.NfcAdapter
 import android.nfc.Tag
-import android.nfc.tech.Ndef
 import android.os.Build
-import android.widget.Toast
+import android.util.Log
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -28,24 +25,105 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import dev.yilliee.iotventure.ui.theme.*
-import kotlinx.coroutines.delay
-import java.nio.charset.Charset
+import kotlinx.coroutines.launch
 import dev.yilliee.iotventure.MainActivity
+import dev.yilliee.iotventure.data.model.Challenge
+import dev.yilliee.iotventure.data.model.NfcValidationResult
+import dev.yilliee.iotventure.di.ServiceLocator
 
 enum class ScanStatus {
-    SCANNING, SUCCESS, ERROR
+    SCANNING, SUCCESS, ERROR, ALREADY_SOLVED
 }
 
+// Change the NfcResultDialog function to not automatically close the screen after dismissal
+@Composable
+fun NfcResultDialog(
+    status: ScanStatus,
+    message: String,
+    challenge: Challenge?,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = when(status) {
+                    ScanStatus.SUCCESS -> "Challenge Found!"
+                    ScanStatus.ALREADY_SOLVED -> "Already Solved"
+                    else -> "Scan Result"
+                },
+                color = when(status) {
+                    ScanStatus.SUCCESS -> SuccessGreen
+                    ScanStatus.ALREADY_SOLVED -> Gold
+                    else -> ErrorRed
+                },
+                style = MaterialTheme.typography.titleLarge
+            )
+        },
+        text = {
+            Column {
+                Text(
+                    text = message,
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = TextWhite
+                )
+
+                if (challenge != null && status == ScanStatus.SUCCESS) {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = "Points: ${challenge.points}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Gold,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    onDismiss()
+                },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = when(status) {
+                        ScanStatus.SUCCESS -> SuccessGreen
+                        ScanStatus.ALREADY_SOLVED -> Gold
+                        else -> DarkSurfaceLight
+                    },
+                    contentColor = when(status) {
+                        ScanStatus.SUCCESS, ScanStatus.ALREADY_SOLVED -> DarkBackground
+                        else -> TextWhite
+                    }
+                )
+            ) {
+                Text("Continue")
+            }
+        },
+        containerColor = DarkSurface,
+        titleContentColor = when(status) {
+            ScanStatus.SUCCESS -> SuccessGreen
+            ScanStatus.ALREADY_SOLVED -> Gold
+            else -> ErrorRed
+        },
+        textContentColor = TextWhite
+    )
+}
+
+// Modify the ScanNfcScreen function to properly reset state after scanning
 @Composable
 fun ScanNfcScreen(
     onBackClick: () -> Unit,
     onScanComplete: () -> Unit
 ) {
     val context = LocalContext.current
+    val gameRepository = remember { ServiceLocator.provideGameRepository(context) }
+    val scope = rememberCoroutineScope()
+
     var scanStatus by remember { mutableStateOf(ScanStatus.SCANNING) }
     var statusMessage by remember { mutableStateOf("Scanning for NFC token...") }
     var nfcContent by remember { mutableStateOf("") }
-    var showNfcDialog by remember { mutableStateOf(false) }
+    var validatedChallenge by remember { mutableStateOf<Challenge?>(null) }
+    var showResultDialog by remember { mutableStateOf(false) }
 
     // NFC Adapter
     val nfcAdapter = remember { NfcAdapter.getDefaultAdapter(context) }
@@ -60,6 +138,38 @@ fun ScanNfcScreen(
         } else if (!isNfcEnabled) {
             scanStatus = ScanStatus.ERROR
             statusMessage = "NFC is disabled. Please enable it in your device settings"
+        }
+
+        // Clear any previous validation result when screen is shown
+        gameRepository.clearNfcValidationResult()
+    }
+
+    // Observe NFC validation results from the repository
+    LaunchedEffect(Unit) {
+        gameRepository.nfcValidationResult.collect { result ->
+            result?.let {
+                when (result) {
+                    is NfcValidationResult.Valid -> {
+                        scanStatus = ScanStatus.SUCCESS
+                        statusMessage = "Challenge found! ${result.challenge.name}"
+                        validatedChallenge = result.challenge
+                        showResultDialog = true
+
+                        // Add to solve queue
+                        gameRepository.addToSolveQueue(result.challenge)
+                    }
+                    is NfcValidationResult.Invalid -> {
+                        scanStatus = ScanStatus.ERROR
+                        statusMessage = "Invalid NFC token. This doesn't match any challenge."
+                        showResultDialog = true
+                    }
+                    is NfcValidationResult.AlreadySolved -> {
+                        scanStatus = ScanStatus.ALREADY_SOLVED
+                        statusMessage = "This challenge has already been solved!"
+                        showResultDialog = true
+                    }
+                }
+            }
         }
     }
 
@@ -109,6 +219,8 @@ fun ScanNfcScreen(
             onDispose {
                 // Disable NFC foreground dispatch when leaving this screen
                 nfcAdapter?.disableForegroundDispatch(context.findActivity())
+                // Clear validation result
+                gameRepository.clearNfcValidationResult()
             }
         }
 
@@ -125,61 +237,26 @@ fun ScanNfcScreen(
             if (scanStatus == ScanStatus.SCANNING) {
                 val tag = intent.getParcelableExtra<Tag>(NfcAdapter.EXTRA_TAG)
                 tag?.let {
-                    val ndef = Ndef.get(it)
-                    if (ndef != null) {
-                        try {
-                            ndef.connect()
-                            val ndefMessage = ndef.cachedNdefMessage
-                            if (ndefMessage != null) {
-                                val records = ndefMessage.records
-                                if (records.isNotEmpty()) {
-                                    val record = records[0]
-                                    val payload = record.payload
-                                    val textEncoding = if ((payload[0].toInt() and 128) == 0) "UTF-8" else "UTF-16"
-                                    val languageCodeLength = payload[0].toInt() and 63
-
-                                    nfcContent = String(
-                                        payload,
-                                        languageCodeLength + 1,
-                                        payload.size - languageCodeLength - 1,
-                                        Charset.forName(textEncoding)
-                                    )
-
-                                    scanStatus = ScanStatus.SUCCESS
-                                    statusMessage = "Token found! Clue unlocked."
-                                    showNfcDialog = true
-                                }
-                            } else {
-                                // If no NDEF message, try to get raw tag ID
-                                val id = tag.id
-                                if (id != null && id.isNotEmpty()) {
-                                    val hexId = id.joinToString("") { "%02X".format(it) }
-                                    nfcContent = "Tag ID: $hexId"
-                                    scanStatus = ScanStatus.SUCCESS
-                                    statusMessage = "Token found! Clue unlocked."
-                                    showNfcDialog = true
-                                }
-                            }
-                        } catch (e: Exception) {
-                            scanStatus = ScanStatus.ERROR
-                            statusMessage = "Error reading NFC tag: ${e.message}"
-                        } finally {
-                            try {
-                                ndef.close()
-                            } catch (e: Exception) {
-                                // Ignore close errors
-                            }
-                        }
-                    } else {
-                        // Handle non-NDEF tags
+                    try {
+                        // Always use the tag ID as the primary identifier
                         val id = tag.id
                         if (id != null && id.isNotEmpty()) {
                             val hexId = id.joinToString("") { "%02X".format(it) }
-                            nfcContent = "Non-NDEF Tag ID: $hexId"
-                            scanStatus = ScanStatus.SUCCESS
-                            statusMessage = "Token found! Clue unlocked."
-                            showNfcDialog = true
+                            nfcContent = hexId
+
+                            // Validate the NFC tag ID against challenges
+                            scope.launch {
+                                gameRepository.validateNfcTag(hexId)
+                            }
+                        } else {
+                            scanStatus = ScanStatus.ERROR
+                            statusMessage = "Could not read NFC tag ID"
+                            showResultDialog = true
                         }
+                    } catch (e: Exception) {
+                        scanStatus = ScanStatus.ERROR
+                        statusMessage = "Error reading NFC tag: ${e.message}"
+                        showResultDialog = true
                     }
                 }
 
@@ -187,11 +264,6 @@ fun ScanNfcScreen(
                 MainActivity.nfcIntent.value = null
             }
         }
-    }
-
-    // No simulation, only real NFC scanning
-    DisposableEffect(Unit) {
-        onDispose {}
     }
 
     Scaffold(
@@ -209,24 +281,33 @@ fun ScanNfcScreen(
             when (scanStatus) {
                 ScanStatus.SCANNING -> ScanningContent(statusMessage)
                 ScanStatus.SUCCESS -> SuccessContent(statusMessage)
+                ScanStatus.ALREADY_SOLVED -> AlreadySolvedContent(statusMessage)
                 ScanStatus.ERROR -> ErrorContent(
                     statusMessage = statusMessage,
                     onRetry = {
                         if (isNfcAvailable && isNfcEnabled) {
                             scanStatus = ScanStatus.SCANNING
                             statusMessage = "Scanning for NFC token..."
+                            gameRepository.clearNfcValidationResult()
                         }
                     }
                 )
             }
         }
 
-        if (showNfcDialog) {
-            NfcContentDialog(
-                content = nfcContent,
+        if (showResultDialog) {
+            NfcResultDialog(
+                status = scanStatus,
+                message = statusMessage,
+                challenge = validatedChallenge,
                 onDismiss = {
-                    showNfcDialog = false
-                    onScanComplete()
+                    showResultDialog = false
+                    // Reset scan status to allow scanning another tag
+                    scanStatus = ScanStatus.SCANNING
+                    statusMessage = "Scanning for NFC token..."
+                    validatedChallenge = null
+                    gameRepository.clearNfcValidationResult()
+                    // Don't call onScanComplete() here to keep the screen open
                 }
             )
         }
@@ -234,41 +315,27 @@ fun ScanNfcScreen(
 }
 
 @Composable
-fun NfcContentDialog(
-    content: String,
-    onDismiss: () -> Unit
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Text(
-                text = "NFC Token Content",
-                color = Gold,
-                style = MaterialTheme.typography.titleLarge
-            )
-        },
-        text = {
-            Text(
-                text = content,
-                style = MaterialTheme.typography.bodyLarge,
-                color = TextWhite
-            )
-        },
-        confirmButton = {
-            Button(
-                onClick = onDismiss,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Gold,
-                    contentColor = DarkBackground
-                )
-            ) {
-                Text("Continue")
-            }
-        },
-        containerColor = DarkSurface,
-        titleContentColor = Gold,
-        textContentColor = TextWhite
-    )
+fun AlreadySolvedContent(statusMessage: String) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Icon(
+            imageVector = Icons.Default.CheckCircle,
+            contentDescription = "Already Solved",
+            tint = Gold,
+            modifier = Modifier.size(64.dp)
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Text(
+            text = statusMessage,
+            style = MaterialTheme.typography.titleMedium,
+            color = Gold,
+            fontWeight = FontWeight.Bold,
+            textAlign = TextAlign.Center
+        )
+    }
 }
 
 @Composable

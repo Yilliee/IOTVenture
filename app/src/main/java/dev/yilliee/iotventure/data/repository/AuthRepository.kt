@@ -17,6 +17,10 @@ class AuthRepository(
         private const val TAG = "AuthRepository"
     }
 
+    /**
+     * Attempts to log in a user with the provided credentials
+     * and preloads all necessary data
+     */
     suspend fun login(username: String, password: String): Result<LoginResponse> {
         return withContext(Dispatchers.IO) {
             Log.d(TAG, "Login attempt for user: $username")
@@ -26,12 +30,20 @@ class AuthRepository(
 
             if (result.isSuccess) {
                 val response = result.getOrNull()
-                response?.deviceToken?.let { token ->
+                if (response != null) {
                     Log.d(TAG, "Login successful, saving credentials")
-                    preferencesManager.saveDeviceToken(token)
+
+                    // Save device token
+                    response.deviceToken.let { token ->
+                        preferencesManager.saveDeviceToken(token)
+                        apiService.setDeviceToken(token)
+                        Log.d(TAG, "Device token saved: $token")
+                    }
+
+                    // Save user credentials
                     preferencesManager.saveUsername(username)
-                    preferencesManager.savePassword(password) // Store password for reconnection
-                    preferencesManager.saveTeamName(username) // Using username as team name for now
+                    preferencesManager.savePassword(password)
+                    preferencesManager.saveTeamName(username)
 
                     // Save challenges if available
                     response.challenges?.let { challenges ->
@@ -49,6 +61,15 @@ class AuthRepository(
                             Log.e(TAG, "Failed to fetch messages: ${error.message}")
                         }
                     )
+
+                    // Set game start time if not already set
+                    if (preferencesManager.getGameStartTime() == 0L) {
+                        preferencesManager.setGameStartTime(System.currentTimeMillis())
+                        Log.d(TAG, "Set initial game start time")
+                    }
+                } else {
+                    Log.e(TAG, "Login response was null")
+                    return@withContext Result.failure(Exception("Login response was null"))
                 }
             } else {
                 Log.e(TAG, "Login failed: ${result.exceptionOrNull()?.message}")
@@ -58,41 +79,55 @@ class AuthRepository(
         }
     }
 
+    /**
+     * Logs out the current user and clears all local data
+     */
     suspend fun logout(): Result<Boolean> {
         return withContext(Dispatchers.IO) {
-            val username = preferencesManager.getUsername()
-            val password = preferencesManager.getPassword()
+            Log.d(TAG, "Logout attempt")
 
-            if (username == null || password == null) {
-                Log.e(TAG, "Cannot logout: missing credentials")
-                return@withContext Result.failure(Exception("Not logged in"))
-            }
+            try {
+                // Try to logout from server
+                val result = apiService.logout()
 
-            Log.d(TAG, "Logout attempt for user: $username")
-
-            val result = apiService.logout(username, password)
-
-            if (result.isSuccess) {
-                Log.d(TAG, "Logout successful, clearing data")
+                // Always clear local data regardless of server response
+                Log.d(TAG, "Clearing all local data")
                 preferencesManager.clearAllData()
-            } else {
-                Log.e(TAG, "Logout failed: ${result.exceptionOrNull()?.message}")
+
+                if (result.isSuccess) {
+                    Log.d(TAG, "Logout successful")
+                    Result.success(true)
+                } else {
+                    Log.e(TAG, "Logout from server failed: ${result.exceptionOrNull()?.message}")
+                    // Return success anyway since we've cleared local data
+                    Result.success(true)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Exception during logout: ${e.message}")
                 // Even if server logout fails, clear local data
                 preferencesManager.clearAllData()
+                // Return success since we've cleared local data
+                Result.success(true)
             }
-
-            result
         }
     }
 
+    /**
+     * Checks if the user is currently logged in
+     */
     fun isLoggedIn(): Boolean {
         val hasToken = preferencesManager.getDeviceToken() != null
         val hasUsername = preferencesManager.getUsername() != null
         val hasPassword = preferencesManager.getPassword() != null
 
-        return hasToken && hasUsername && hasPassword
+        val isLoggedIn = hasToken && hasUsername && hasPassword
+        Log.d(TAG, "isLoggedIn check: $isLoggedIn (token: $hasToken, username: $hasUsername, password: $hasPassword)")
+        return isLoggedIn
     }
 
+    /**
+     * Gets the current username
+     */
     fun getUsername(): String? {
         return preferencesManager.getUsername()
     }

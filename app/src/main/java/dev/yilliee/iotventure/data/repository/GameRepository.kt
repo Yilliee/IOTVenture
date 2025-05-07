@@ -9,7 +9,6 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.flow
 
 class GameRepository(
@@ -20,6 +19,7 @@ class GameRepository(
         private const val TAG = "GameRepository"
     }
 
+    // State flows for reactive UI updates
     private val _nfcValidationResult = MutableStateFlow<NfcValidationResult?>(null)
     val nfcValidationResult: StateFlow<NfcValidationResult?> = _nfcValidationResult.asStateFlow()
 
@@ -29,102 +29,243 @@ class GameRepository(
     private val _challenges = MutableStateFlow<List<Challenge>>(emptyList())
     val challenges: StateFlow<List<Challenge>> = _challenges.asStateFlow()
 
+    private val _solvedChallenges = MutableStateFlow<Set<Int>>(emptySet())
+    val solvedChallenges: StateFlow<Set<Int>> = _solvedChallenges.asStateFlow()
+
     init {
+        // Initialize state from preferences
         _challenges.value = preferencesManager.getChallenges()
+        _solvedChallenges.value = preferencesManager.getSolvedChallenges()
+        Log.d(TAG, "Initialized with ${_challenges.value.size} challenges and ${_solvedChallenges.value.size} solved challenges")
     }
 
+    // Add a new function to explicitly load challenges from preferences
+    fun loadChallengesFromPreferences() {
+        _challenges.value = preferencesManager.getChallenges()
+        _solvedChallenges.value = preferencesManager.getSolvedChallenges()
+        Log.d(TAG, "Explicitly loaded ${_challenges.value.size} challenges and ${_solvedChallenges.value.size} solved challenges")
+    }
+
+    /**
+     * Gets all challenges
+     */
     fun getChallenges(): Flow<List<Challenge>> = flow {
-        emit(preferencesManager.getChallenges())
+        val challenges = preferencesManager.getChallenges()
+        _challenges.value = challenges // Update the StateFlow
+        emit(challenges)
     }
 
+    /**
+     * Gets only unsolved challenges
+     */
+    fun getAvailableChallenges(): Flow<List<Challenge>> = flow {
+        val allChallenges = preferencesManager.getChallenges()
+        val solvedIds = preferencesManager.getSolvedChallenges()
+        emit(allChallenges.filter { !solvedIds.contains(it.id) })
+    }
+
+    /**
+     * Gets solved challenge IDs
+     */
+    fun getSolvedChallengesFlow(): Flow<Set<Int>> = flow {
+        emit(preferencesManager.getSolvedChallenges())
+    }
+
+    /**
+     * Gets a challenge by ID
+     */
     suspend fun getChallengeById(id: Int): Challenge? {
         return preferencesManager.getChallenges().find { it.id == id }
     }
 
+    /**
+     * Selects a challenge for display
+     */
     fun selectChallenge(challenge: Challenge) {
         _selectedChallenge.value = challenge
+        Log.d(TAG, "Selected challenge: ${challenge.id} - ${challenge.name}")
     }
 
+    /**
+     * Clears the selected challenge
+     */
     fun clearSelectedChallenge() {
         _selectedChallenge.value = null
+        Log.d(TAG, "Cleared selected challenge")
     }
 
+    /**
+     * Adds a solved challenge to the queue for server submission
+     */
     suspend fun addToSolveQueue(challenge: Challenge) {
         val currentQueue = preferencesManager.getSolveQueue().toMutableList()
         if (!currentQueue.any { it.id == challenge.id }) {
             currentQueue.add(challenge)
             preferencesManager.setSolveQueue(currentQueue)
+            Log.d(TAG, "Added challenge ${challenge.id} to solve queue")
         }
+
+        // Mark as solved locally
+        val solvedChallenges = preferencesManager.getSolvedChallenges().toMutableSet()
+        solvedChallenges.add(challenge.id)
+        preferencesManager.setSolvedChallenges(solvedChallenges.toList())
+        _solvedChallenges.value = solvedChallenges
+        Log.d(TAG, "Marked challenge ${challenge.id} as solved locally")
+
+        // Update challenges list to reflect solved status
+        _challenges.value = preferencesManager.getChallenges()
     }
 
+    /**
+     * Submits all queued solves to the server
+     */
     suspend fun submitSolves() {
         val solveQueue = preferencesManager.getSolveQueue()
-        if (solveQueue.isEmpty()) return
+        if (solveQueue.isEmpty()) {
+            Log.d(TAG, "No solves in queue to submit")
+            return
+        }
+
+        Log.d(TAG, "Submitting ${solveQueue.size} solves from queue")
 
         try {
-            val deviceToken = preferencesManager.getDeviceToken()
-            if (deviceToken == null) {
-                Log.e(TAG, "No device token found")
-                return
-            }
+            var successCount = 0
+            val failedSolves = mutableListOf<Challenge>()
 
             for (challenge in solveQueue) {
                 try {
-                    apiService.submitSolve(deviceToken, challenge.id, challenge.keyHash)
-                    // Add to solved challenges and remove from queue
-                    val solvedChallenges = preferencesManager.getSolvedChallenges().toMutableList()
-                    solvedChallenges.add(challenge.id)
-                    preferencesManager.setSolvedChallenges(solvedChallenges)
+                    Log.d(TAG, "Submitting solve for challenge ${challenge.id} with key hash ${challenge.keyHash}")
+                    val result = apiService.submitSolve(challenge.id, challenge.keyHash)
+                    if (result.isSuccess) {
+                        successCount++
+                        Log.d(TAG, "Successfully submitted solve for challenge ${challenge.id}")
+                    } else {
+                        Log.e(TAG, "Failed to submit solve for challenge ${challenge.id}: ${result.exceptionOrNull()?.message}")
+                        failedSolves.add(challenge)
+                    }
                 } catch (e: Exception) {
-                    Log.e(TAG, "Failed to submit solve for challenge ${challenge.id}", e)
+                    Log.e(TAG, "Exception submitting solve for challenge ${challenge.id}", e)
+                    failedSolves.add(challenge)
                 }
             }
 
-            // Clear solve queue after successful submission
-            preferencesManager.setSolveQueue(emptyList())
+            // Only keep failed solves in the queue
+            if (failedSolves.isNotEmpty()) {
+                Log.d(TAG, "Keeping ${failedSolves.size} failed solves in queue for retry")
+                preferencesManager.setSolveQueue(failedSolves)
+            } else {
+                Log.d(TAG, "All solves submitted successfully, clearing queue")
+                preferencesManager.setSolveQueue(emptyList())
+            }
+
+            Log.d(TAG, "Successfully submitted $successCount solves to server")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to submit solves", e)
         }
     }
 
-    fun setGameStartTime() {
-        preferencesManager.setGameStartTime(System.currentTimeMillis())
+    /**
+     * Gets the current solve queue
+     */
+    fun getSolveQueue(): List<Challenge> {
+        return preferencesManager.getSolveQueue()
     }
 
+    /**
+     * Sets the game start time
+     */
+    fun setGameStartTime() {
+        preferencesManager.setGameStartTime(System.currentTimeMillis())
+        Log.d(TAG, "Set game start time to ${System.currentTimeMillis()}")
+    }
+
+    /**
+     * Gets the game start time
+     */
     fun getGameStartTime(): Long {
         return preferencesManager.getGameStartTime()
     }
 
+    /**
+     * Triggers emergency lock
+     */
     suspend fun emergencyLock() {
         try {
-            val deviceToken = preferencesManager.getDeviceToken()
-            if (deviceToken != null) {
-                apiService.emergencyLock(deviceToken)
-                // Clear solve queue and solved challenges
-                preferencesManager.setSolveQueue(emptyList())
-                preferencesManager.setSolvedChallenges(emptyList())
+            Log.d(TAG, "Triggering emergency lock")
+            val result = apiService.emergencyLock()
+            if (result.isSuccess) {
+                Log.d(TAG, "Emergency lock successful")
+            } else {
+                Log.e(TAG, "Emergency lock failed: ${result.exceptionOrNull()?.message}")
             }
+
+            // Clear solve queue and solved challenges regardless of server response
+            preferencesManager.setSolveQueue(emptyList())
+            preferencesManager.setSolvedChallenges(emptyList())
+            _solvedChallenges.value = emptySet()
+            Log.d(TAG, "Cleared solve queue and solved challenges")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to emergency lock", e)
         }
     }
 
-    suspend fun validateNfcTag(keyHash: String) {
+    /**
+     * Validates an NFC tag against available challenges
+     */
+    suspend fun validateNfcTag(tagId: String) {
+        Log.d(TAG, "Validating NFC tag: $tagId")
         val challenges = preferencesManager.getChallenges()
-        val challenge = challenges.find { it.keyHash == keyHash }
+
+        // Find a challenge with matching key hash
+        val challenge = challenges.find { it.keyHash == tagId }
+
         if (challenge != null) {
             val solvedChallenges = preferencesManager.getSolvedChallenges()
+
             if (solvedChallenges.contains(challenge.id)) {
+                Log.d(TAG, "Challenge ${challenge.id} already solved")
                 _nfcValidationResult.value = NfcValidationResult.AlreadySolved
             } else {
+                Log.d(TAG, "Valid challenge found: ${challenge.id} - ${challenge.name}")
                 _nfcValidationResult.value = NfcValidationResult.Valid(challenge)
             }
         } else {
+            Log.d(TAG, "No matching challenge found for tag")
             _nfcValidationResult.value = NfcValidationResult.Invalid
         }
     }
 
+    /**
+     * Clears the NFC validation result
+     */
     fun clearNfcValidationResult() {
         _nfcValidationResult.value = null
+        Log.d(TAG, "Cleared NFC validation result")
     }
-} 
+
+    /**
+     * Calculates the completion percentage
+     */
+    fun getCompletionPercentage(): Int {
+        val total = preferencesManager.getChallenges().size
+        if (total == 0) return 0
+
+        val solved = preferencesManager.getSolvedChallenges().size
+        val percentage = (solved * 100) / total
+        Log.d(TAG, "Completion percentage: $percentage% ($solved/$total)")
+        return percentage
+    }
+
+    /**
+     * Tests server connection
+     */
+    suspend fun testServerConnection(): Result<Boolean> {
+        return try {
+            Log.d(TAG, "Testing server connection")
+            apiService.testServerConnection()
+        } catch (e: Exception) {
+            Log.e(TAG, "Server connection test failed", e)
+            Result.failure(e)
+        }
+    }
+}

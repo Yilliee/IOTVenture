@@ -30,9 +30,9 @@ class PreferencesManager(context: Context) {
     }
 
     private val prefs: SharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-    private val json = Json { 
-        ignoreUnknownKeys = true
-        isLenient = true
+    private val json = Json {
+        ignoreUnknownKeys = true;
+        isLenient = true;
         coerceInputValues = true
     }
 
@@ -180,10 +180,10 @@ class PreferencesManager(context: Context) {
         // Save current server settings
         val currentIp = getServerIp()
         val currentPort = getServerPort()
-        
+
         // Clear all preferences
         prefs.edit().clear().apply()
-        
+
         // Restore server settings
         saveServerSettings(currentIp, currentPort)
     }
