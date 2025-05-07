@@ -37,14 +37,13 @@ object ServiceLocator {
         }
     }
 
-    fun provideAuthRepository(context: Context): AuthRepository {
-        return authRepository ?: synchronized(this) {
-            AuthRepository(
-                provideApiService(context),
+    fun provideGameRepository(context: Context): GameRepository {
+        return gameRepository ?: synchronized(this) {
+            GameRepository(
                 providePreferencesManager(context),
-                provideChatRepository(context)
+                provideApiService(context)
             ).also {
-                authRepository = it
+                gameRepository = it
             }
         }
     }
@@ -60,13 +59,16 @@ object ServiceLocator {
         }
     }
 
-    fun provideGameRepository(context: Context): GameRepository {
-        return gameRepository ?: synchronized(this) {
-            GameRepository(
+    fun provideAuthRepository(context: Context): AuthRepository {
+        return authRepository ?: synchronized(this) {
+            val gameRepo = provideGameRepository(context)
+            AuthRepository(
+                provideApiService(context),
                 providePreferencesManager(context),
-                provideApiService(context)
+                provideChatRepository(context),
+                gameRepo
             ).also {
-                gameRepository = it
+                authRepository = it
             }
         }
     }

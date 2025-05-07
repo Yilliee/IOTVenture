@@ -3,6 +3,7 @@ package dev.yilliee.iotventure.data.repository
 import android.util.Log
 import dev.yilliee.iotventure.data.model.Challenge
 import dev.yilliee.iotventure.data.model.NfcValidationResult
+import dev.yilliee.iotventure.data.model.TeamSolve
 import dev.yilliee.iotventure.data.remote.ApiService
 import dev.yilliee.iotventure.data.local.PreferencesManager
 import kotlinx.coroutines.flow.Flow
@@ -44,6 +45,39 @@ class GameRepository(
         _challenges.value = preferencesManager.getChallenges()
         _solvedChallenges.value = preferencesManager.getSolvedChallenges()
         Log.d(TAG, "Explicitly loaded ${_challenges.value.size} challenges and ${_solvedChallenges.value.size} solved challenges")
+    }
+
+    /**
+     * Fetches team solves from the server and updates local state
+     */
+    suspend fun fetchTeamSolves() {
+        try {
+            Log.d(TAG, "Fetching team solves from server")
+            val result = apiService.getTeamSolves()
+
+            if (result.isSuccess) {
+                val response = result.getOrNull()
+                val teamSolves = response?.solves ?: emptyList()
+                Log.d(TAG, "Received ${teamSolves.size} team solves from server")
+
+                if (teamSolves.isNotEmpty()) {
+                    // Extract challenge IDs from team solves
+                    val solvedChallengeIds = teamSolves.map { it.challengeId }.toSet()
+
+                    // Update solved challenges in preferences
+                    preferencesManager.setSolvedChallenges(solvedChallengeIds.toList())
+
+                    // Update state flow
+                    _solvedChallenges.value = solvedChallengeIds
+
+                    Log.d(TAG, "Updated solved challenges with team solves: $solvedChallengeIds")
+                }
+            } else {
+                Log.e(TAG, "Error fetching team solves: ${result.exceptionOrNull()?.message}")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Exception fetching team solves", e)
+        }
     }
 
     /**
@@ -159,6 +193,9 @@ class GameRepository(
             }
 
             Log.d(TAG, "Successfully submitted $successCount solves to server")
+
+            // After submitting solves, fetch team solves to ensure we have the latest data
+            fetchTeamSolves()
         } catch (e: Exception) {
             Log.e(TAG, "Failed to submit solves", e)
         }

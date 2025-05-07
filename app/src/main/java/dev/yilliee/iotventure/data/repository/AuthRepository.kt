@@ -10,7 +10,8 @@ import kotlinx.coroutines.withContext
 class AuthRepository(
     private val apiService: ApiService,
     private val preferencesManager: PreferencesManager,
-    private val chatRepository: ChatRepository
+    private val chatRepository: ChatRepository,
+    private val gameRepository: GameRepository
 ) {
 
     companion object {
@@ -50,6 +51,10 @@ class AuthRepository(
                         Log.d(TAG, "Received ${challenges.size} challenges")
                         preferencesManager.saveChallenges(challenges)
                     }
+
+                    // Fetch team solves to update solved challenges
+                    Log.d(TAG, "Fetching team solves after login")
+                    gameRepository.fetchTeamSolves()
 
                     // Fetch and store messages
                     Log.d(TAG, "Fetching messages after login")

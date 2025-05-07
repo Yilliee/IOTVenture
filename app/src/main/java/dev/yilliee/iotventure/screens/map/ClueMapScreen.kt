@@ -463,80 +463,8 @@ data class ClueMapPoint(
     val isCurrent: Boolean
 )
 
-private fun getMockCluePoints(): List<ClueMapPoint> {
-    return listOf(
-        ClueMapPoint(
-            id = 1,
-            title = "Starting Point",
-            description = "The adventure begins at the campus entrance.",
-            hint = "Look for the large stone sign.",
-            latitude = 33.6844,
-            longitude = 73.0479,
-            isFound = true,
-            isCurrent = false
-        ),
-        ClueMapPoint(
-            id = 2,
-            title = "The Ancient Library",
-            description = "Find the oldest book in the library's special collection.",
-            hint = "Check the glass display case on the second floor.",
-            latitude = 33.6900,
-            longitude = 73.0550,
-            isFound = true,
-            isCurrent = false
-        ),
-        ClueMapPoint(
-            id = 3,
-            title = "The Clock Tower",
-            description = "Discover the secret behind the clock tower's unusual chimes.",
-            hint = "Count the number of chimes at noon.",
-            latitude = 33.6950,
-            longitude = 73.0500,
-            isFound = true,
-            isCurrent = false
-        ),
-        ClueMapPoint(
-            id = 4,
-            title = "The Hidden Garden",
-            description = "Find the rare flower that blooms only at midnight.",
-            hint = "Look for a garden entrance behind the science building.",
-            latitude = 33.7000,
-            longitude = 73.0600,
-            isFound = false,
-            isCurrent = true
-        ),
-        ClueMapPoint(
-            id = 5,
-            title = "The Professor's Office",
-            description = "Locate the professor's secret research notes.",
-            hint = "The office is on the top floor of the mathematics building.",
-            latitude = 33.7050,
-            longitude = 73.0450,
-            isFound = false,
-            isCurrent = false
-        ),
-        ClueMapPoint(
-            id = 6,
-            title = "The Underground Tunnel",
-            description = "Navigate the forgotten tunnels beneath the campus.",
-            hint = "The entrance is hidden in the oldest dormitory's basement.",
-            latitude = 33.7100,
-            longitude = 73.0650,
-            isFound = false,
-            isCurrent = false
-        ),
-        ClueMapPoint(
-            id = 7,
-            title = "The Final Secret",
-            description = "Uncover the ultimate mystery of the treasure hunt.",
-            hint = "Return to where it all began, but look up instead of forward.",
-            latitude = 33.6844,
-            longitude = 73.0550,
-            isFound = false,
-            isCurrent = false
-        )
-    )
-}
+
+
 
 // Helper function to update user location
 private fun updateUserLocation(context: Context, onLocationUpdate: (GeoPoint) -> Unit) {

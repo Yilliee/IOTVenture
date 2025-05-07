@@ -5,6 +5,7 @@ import dev.yilliee.iotventure.data.model.LoginRequest
 import dev.yilliee.iotventure.data.model.LoginResponse
 import dev.yilliee.iotventure.data.model.MessageResponse
 import dev.yilliee.iotventure.data.model.LeaderboardResponse
+import dev.yilliee.iotventure.data.model.TeamSolvesResponse
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -130,6 +131,43 @@ class ApiService {
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Login network error", e)
+                Result.failure(e)
+            }
+        }
+    }
+
+    /**
+     * Fetches team solves from the server
+     */
+    suspend fun getTeamSolves(): Result<TeamSolvesResponse> {
+        return withContext(Dispatchers.IO) {
+            try {
+                val baseUrl = getBaseUrl()
+                Log.d(TAG, "Fetching team solves")
+
+                val url = URL("$baseUrl/api/team/solves")
+                val connection = url.openConnection() as HttpURLConnection
+                connection.requestMethod = "GET"
+                addAuthHeader(connection)
+                connection.setRequestProperty("Accept", "application/json")
+                connection.connectTimeout = CONNECT_TIMEOUT
+                connection.readTimeout = READ_TIMEOUT
+
+                // Process response
+                val responseCode = connection.responseCode
+                Log.d(TAG, "Team solves response code: $responseCode")
+
+                if (responseCode == HttpURLConnection.HTTP_OK) {
+                    val response = BufferedReader(InputStreamReader(connection.inputStream)).use { it.readText() }
+                    val solvesResponse = json.decodeFromString<TeamSolvesResponse>(response)
+                    Result.success(solvesResponse)
+                } else {
+                    val errorResponse = BufferedReader(InputStreamReader(connection.errorStream)).use { it.readText() }
+                    Log.e(TAG, "Team solves error: $errorResponse")
+                    Result.failure(Exception("Failed to get team solves: $errorResponse"))
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Team solves network error", e)
                 Result.failure(e)
             }
         }

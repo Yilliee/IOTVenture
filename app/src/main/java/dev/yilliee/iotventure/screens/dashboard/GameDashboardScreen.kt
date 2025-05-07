@@ -90,6 +90,28 @@ fun GameDashboardScreen(
         }
     }
 
+    // Add this LaunchedEffect to fetch team solves periodically
+    LaunchedEffect(Unit) {
+        // Initial fetch
+        scope.launch {
+            try {
+                gameRepository.fetchTeamSolves()
+            } catch (e: Exception) {
+                // Ignore errors, will try again later
+            }
+        }
+
+        // Periodic fetch every 30 seconds
+        while (true) {
+            delay(30000) // 30 seconds
+            try {
+                gameRepository.fetchTeamSolves()
+            } catch (e: Exception) {
+                // Ignore errors, will try again
+            }
+        }
+    }
+
     val completedChallenges = solvedChallengeIds.size
     val totalChallenges = challenges.size
 
