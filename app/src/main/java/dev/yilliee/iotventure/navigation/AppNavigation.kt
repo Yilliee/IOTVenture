@@ -15,11 +15,9 @@ import dev.yilliee.iotventure.screens.login.LoginScreen
 import dev.yilliee.iotventure.screens.map.ClueMapScreen
 import dev.yilliee.iotventure.screens.scan.ScanNfcScreen
 import dev.yilliee.iotventure.screens.transfer.DeviceTransferScreen
-import dev.yilliee.iotventure.screens.team.TeamDetailsScreen
 import dev.yilliee.iotventure.di.ServiceLocator
 import android.content.Context
 import androidx.compose.runtime.remember
-import dev.yilliee.iotventure.navigation.AppDestinations.DEVICE_TRANSFER_ROUTE
 
 object AppDestinations {
     const val LOGIN_ROUTE = "login"
@@ -31,13 +29,11 @@ object AppDestinations {
     const val DEVICE_TRANSFER_ROUTE = "device_transfer"
     const val DEVICE_TRANSFER_RECEIVER_ROUTE = "device_transfer/receiver"
     const val CLUE_MAP_ROUTE = "clue_map/{challengeId}"
-    const val TEAM_DETAILS_ROUTE = "team_details"
 }
 
 sealed class Screen(val route: String) {
     object Login : Screen("login")
     object Dashboard : Screen("dashboard")
-    object TeamDetails : Screen("team_details")
     object DeviceTransfer : Screen("device_transfer")
 }
 
@@ -76,14 +72,6 @@ fun AppNavigation(
                 },
                 onEmergencyClick = {
                     navController.navigate(AppDestinations.EMERGENCY_UNLOCK_ROUTE)
-                }
-            )
-        }
-
-        composable(Screen.TeamDetails.route) {
-            TeamDetailsScreen(
-                onBackClick = {
-                    navController.popBackStack()
                 }
             )
         }

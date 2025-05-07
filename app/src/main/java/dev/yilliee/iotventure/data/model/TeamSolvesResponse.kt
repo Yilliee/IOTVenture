@@ -1,9 +1,0 @@
-package dev.yilliee.iotventure.data.model
-
-import kotlinx.serialization.Serializable
-
-@Serializable
-data class TeamSolvesResponse(
-    val solves: List<TeamSolve>,
-    val serverTime: Long
-)

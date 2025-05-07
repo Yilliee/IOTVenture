@@ -6,7 +6,6 @@ import dev.yilliee.iotventure.data.model.NfcValidationResult
 import dev.yilliee.iotventure.data.model.TeamSolve
 import dev.yilliee.iotventure.data.remote.ApiService
 import dev.yilliee.iotventure.data.local.PreferencesManager
-import dev.yilliee.iotventure.data.model.TeamMember
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -45,44 +44,13 @@ class GameRepository(
 
     // Add a new function to explicitly load challenges from preferences
     fun loadChallengesFromPreferences() {
+        val currentSolvedChallenges = _solvedChallenges.value
         _challenges.value = preferencesManager.getChallenges()
         _solvedChallenges.value = preferencesManager.getSolvedChallenges()
-        Log.d(TAG, "Explicitly loaded ${_challenges.value.size} challenges and ${_solvedChallenges.value.size} solved challenges")
-    }
-
-    /**
-     * Fetches team solves from the server and updates local state
-     */
-    suspend fun fetchTeamSolves() {
-        try {
-            Log.d(TAG, "Fetching team solves from server")
-            val result = apiService.getTeamSolves()
-
-            if (result.isSuccess) {
-                val response = result.getOrNull()
-                val teamSolves = response?.solves ?: emptyList()
-                Log.d(TAG, "Received ${teamSolves.size} team solves from server")
-
-                if (teamSolves.isNotEmpty()) {
-                    // Extract challenge IDs from team solves
-                    val solvedChallengeIds = teamSolves.map { it.challengeId }.toSet()
-
-                    // Update solved challenges in preferences
-                    preferencesManager.setSolvedChallenges(solvedChallengeIds.toList())
-
-                    // Update state flow
-                    _solvedChallenges.value = solvedChallengeIds
-
-                    // Reload challenges to ensure UI is updated
-                    loadChallengesFromPreferences()
-
-                    Log.d(TAG, "Updated solved challenges with team solves: $solvedChallengeIds")
-                }
-            } else {
-                Log.e(TAG, "Error fetching team solves: ${result.exceptionOrNull()?.message}")
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Exception fetching team solves", e)
+        
+        // Only log if there's a change in solved challenges
+        if (currentSolvedChallenges != _solvedChallenges.value) {
+            Log.d(TAG, "Solved challenges changed from $currentSolvedChallenges to ${_solvedChallenges.value}")
         }
     }
 
@@ -199,9 +167,6 @@ class GameRepository(
             }
 
             Log.d(TAG, "Successfully submitted $successCount solves to server")
-
-            // After submitting solves, fetch team solves to ensure we have the latest data
-            fetchTeamSolves()
         } catch (e: Exception) {
             Log.e(TAG, "Failed to submit solves", e)
         }
@@ -294,7 +259,7 @@ class GameRepository(
         if (total == 0) return 0
 
         val solved = preferencesManager.getSolvedChallenges().size
-        val percentage = (solved * 100) / total
+        val percentage = ((solved.toDouble() * 100) / total).toInt()
         Log.d(TAG, "Completion percentage: $percentage% ($solved/$total)")
         return percentage
     }
@@ -309,30 +274,6 @@ class GameRepository(
         } catch (e: Exception) {
             Log.e(TAG, "Server connection test failed", e)
             Result.failure(e)
-        }
-    }
-
-    suspend fun getTeamMembers(): List<TeamMember> {
-        return withContext(Dispatchers.IO) {
-            try {
-                val result = apiService.getTeamMembers()
-                if (result.isSuccess) {
-                    result.getOrNull()?.members?.map { member ->
-                        TeamMember(
-                            username = member.username,
-                            lastActive = member.lastActive,
-                            solvedChallenges = member.solvedChallenges,
-                            isCurrentUser = false
-                        )
-                    } ?: emptyList()
-                } else {
-                    Log.e(TAG, "Error fetching team members: ${result.exceptionOrNull()?.message}")
-                    emptyList()
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Error fetching team members", e)
-                emptyList()
-            }
         }
     }
 }

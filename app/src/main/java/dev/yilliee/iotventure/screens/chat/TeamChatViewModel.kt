@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import dev.yilliee.iotventure.data.model.TeamMessage
 import dev.yilliee.iotventure.data.repository.ChatRepository
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -14,6 +15,7 @@ class TeamChatViewModel(private val chatRepository: ChatRepository) : ViewModel(
 
     companion object {
         private const val TAG = "TeamChatViewModel"
+        private const val MESSAGE_FETCH_INTERVAL = 5000L // 5 seconds
     }
 
     private val _chatState = MutableStateFlow<ChatState>(ChatState.Loading)
@@ -23,6 +25,41 @@ class TeamChatViewModel(private val chatRepository: ChatRepository) : ViewModel(
         // Load local messages immediately
         val localMessages = chatRepository.getLocalMessages()
         _chatState.value = ChatState.Success(localMessages)
+
+        // Start periodic message fetching
+        startMessageFetching()
+    }
+
+    private fun startMessageFetching() {
+        viewModelScope.launch {
+            while (true) {
+                try {
+                    val result = chatRepository.fetchMessages()
+                    if (result.isSuccess) {
+                        val messages = result.getOrNull() ?: emptyList()
+                        _chatState.value = ChatState.Success(messages)
+                    } else {
+                        // Keep current messages on error
+                        val currentMessages = when (val state = _chatState.value) {
+                            is ChatState.Success -> state.messages
+                            is ChatState.NetworkError -> state.cachedMessages
+                            else -> emptyList()
+                        }
+                        _chatState.value = ChatState.NetworkError(currentMessages)
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error fetching messages", e)
+                    // Keep current messages on error
+                    val currentMessages = when (val state = _chatState.value) {
+                        is ChatState.Success -> state.messages
+                        is ChatState.NetworkError -> state.cachedMessages
+                        else -> emptyList()
+                    }
+                    _chatState.value = ChatState.NetworkError(currentMessages)
+                }
+                delay(MESSAGE_FETCH_INTERVAL)
+            }
+        }
     }
 
     fun sendMessage(text: String) {
@@ -30,16 +67,20 @@ class TeamChatViewModel(private val chatRepository: ChatRepository) : ViewModel(
 
         viewModelScope.launch {
             Log.d(TAG, "Sending message: $text")
-            val newMessage = chatRepository.addLocalMessage(text)
+            val result = chatRepository.sendMessage(text)
 
-            // Update the UI with the new message
-            val currentMessages = when (val state = _chatState.value) {
-                is ChatState.Success -> state.messages
-                is ChatState.NetworkError -> state.cachedMessages
-                else -> emptyList()
+            if (result.isSuccess) {
+                // Message sent successfully, update UI
+                val currentMessages = when (val state = _chatState.value) {
+                    is ChatState.Success -> state.messages
+                    is ChatState.NetworkError -> state.cachedMessages
+                    else -> emptyList()
+                }
+                _chatState.value = ChatState.Success(currentMessages + result.getOrNull()!!)
+            } else {
+                // Message failed to send, but we keep it locally
+                Log.e(TAG, "Failed to send message: ${result.exceptionOrNull()?.message}")
             }
-
-            _chatState.value = ChatState.Success(currentMessages + newMessage)
         }
     }
 

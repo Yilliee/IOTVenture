@@ -48,17 +48,15 @@ class IOTVentureApplication : Application() {
                 isActivityChangingConfigurations = activity.isChangingConfigurations
                 if (--activityReferences == 0 && !isActivityChangingConfigurations) {
                     Log.d(TAG, "App entered background")
-                    // When app goes to background, prepare for potential termination
-                    performLogout()
                 }
             }
 
             override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) {}
 
             override fun onActivityDestroyed(activity: Activity) {
-                // Check if this is the last activity being destroyed
-                if (activityReferences == 0 && !isActivityChangingConfigurations) {
-                    Log.d(TAG, "Last activity destroyed, performing logout")
+                // Only perform logout if this is the last activity and we're not changing configurations
+                if (activityReferences == 0 && !isActivityChangingConfigurations && activity.isFinishing) {
+                    Log.d(TAG, "App is being terminated, performing logout")
                     performLogout()
                 }
             }

@@ -60,9 +60,13 @@ fun GameDashboardScreen(
     var challenges by remember { mutableStateOf<List<Challenge>>(emptyList()) }
     var solvedChallengeIds by remember { mutableStateOf<Set<Int>>(emptySet()) }
     var completionPercentage by remember { mutableStateOf(0) }
+    var isInitialLoad by remember { mutableStateOf(true) }
 
     // Collect challenges and solved challenges
     LaunchedEffect(Unit) {
+        // Load initial state from preferences
+        gameRepository.loadChallengesFromPreferences()
+        
         gameRepository.challenges.collectLatest {
             challenges = it
             println("Challenges received: $it")
@@ -72,15 +76,53 @@ fun GameDashboardScreen(
     LaunchedEffect(Unit) {
         gameRepository.solvedChallenges.collectLatest {
             solvedChallengeIds = it
-            completionPercentage = gameRepository.getCompletionPercentage()
+        }
+    }
+
+    // Add this LaunchedEffect to fetch leaderboard data periodically
+    LaunchedEffect(Unit) {
+        // Initial fetch
+        scope.launch {
+            try {
+                val result = ServiceLocator.provideApiService(context).getLeaderboard()
+                if (result.isSuccess) {
+                    // Extract solved challenges from leaderboard data
+                    val leaderboardData = result.getOrNull()
+                    val currentTeamSolves = leaderboardData?.teamSolves?.find { it.name == preferencesManager.getTeamName() }
+                    val solvedIds = currentTeamSolves?.solves?.filter { it.solved }?.map { it.challengeId }?.toSet() ?: emptySet()
+                    
+                    // Update solved challenges and completion percentage
+                    solvedChallengeIds = solvedIds
+                    completionPercentage = ((solvedIds.size.toDouble() * 100) / challenges.size).toInt()
+                }
+            } catch (e: Exception) {
+                // Ignore errors, will try again later
+            }
+        }
+
+        // Periodic fetch every 30 seconds
+        while (true) {
+            delay(30000) // 30 seconds
+            try {
+                val result = ServiceLocator.provideApiService(context).getLeaderboard()
+                if (result.isSuccess) {
+                    // Extract solved challenges from leaderboard data
+                    val leaderboardData = result.getOrNull()
+                    val currentTeamSolves = leaderboardData?.teamSolves?.find { it.name == preferencesManager.getTeamName() }
+                    val solvedIds = currentTeamSolves?.solves?.filter { it.solved }?.map { it.challengeId }?.toSet() ?: emptySet()
+                    
+                    // Update solved challenges
+                    solvedChallengeIds = solvedIds
+                    completionPercentage = ((solvedIds.size.toDouble() * 100) / challenges.size).toInt()   
+                }
+            } catch (e: Exception) {
+                // Ignore errors, will try again
+            }
         }
     }
 
     // Add this LaunchedEffect to explicitly load challenges when the dashboard appears
     LaunchedEffect(Unit) {
-        // Explicitly load challenges from preferences
-        gameRepository.loadChallengesFromPreferences()
-
         // Try to submit any pending solves when dashboard is shown
         scope.launch {
             try {
@@ -91,52 +133,14 @@ fun GameDashboardScreen(
         }
     }
 
-    // Add this LaunchedEffect to fetch team solves periodically
-    LaunchedEffect(Unit) {
-        // Initial fetch
-        scope.launch {
-            try {
-                gameRepository.fetchTeamSolves()
-            } catch (e: Exception) {
-                // Ignore errors, will try again later
-            }
+    // Add this LaunchedEffect to handle initial load and progress updates
+    LaunchedEffect(challenges, solvedChallengeIds) {
+        if (isInitialLoad && challenges.isNotEmpty() && solvedChallengeIds.isNotEmpty()) {
+            completionPercentage = gameRepository.getCompletionPercentage()
+            isInitialLoad = false
+        } else if (!isInitialLoad) {
+            completionPercentage = gameRepository.getCompletionPercentage()
         }
-
-        // Periodic fetch every 30 seconds
-        while (true) {
-            delay(30000) // 30 seconds
-            try {
-                val previousSolvedIds = solvedChallengeIds.toSet()
-                gameRepository.fetchTeamSolves()
-                
-                // Check for newly solved challenges
-                val newSolvedIds = solvedChallengeIds - previousSolvedIds
-                if (newSolvedIds.isNotEmpty()) {
-                    // Find the challenge names for the newly solved challenges
-                    val newSolvedChallenges = challenges.filter { it.id in newSolvedIds }
-                    
-                    // Update completion percentage
-                    completionPercentage = gameRepository.getCompletionPercentage()
-                    
-                    // Show a snackbar notification for each new solve
-                    newSolvedChallenges.forEach { challenge ->
-                        scope.launch {
-                            snackbarHostState.showSnackbar(
-                                message = "Challenge solved: ${challenge.name}",
-                                duration = SnackbarDuration.Short
-                            )
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                // Ignore errors, will try again
-            }
-        }
-    }
-
-    // Add this LaunchedEffect to refresh the UI when solved challenges change
-    LaunchedEffect(solvedChallengeIds) {
-        completionPercentage = gameRepository.getCompletionPercentage()
     }
 
     val completedChallenges = solvedChallengeIds.size
@@ -630,7 +634,6 @@ fun BottomNavBar(
         BottomNavItem("Map", Icons.Default.Place, "clue_map/-1"), // Changed to use -1 for default map view
         BottomNavItem("Scan", Icons.Default.QrCodeScanner, AppDestinations.SCAN_NFC_ROUTE),
         BottomNavItem("Chat", Icons.Default.Chat, AppDestinations.TEAM_CHAT_ROUTE),
-        BottomNavItem("Team", Icons.Default.Group, AppDestinations.TEAM_DETAILS_ROUTE),
         BottomNavItem("Ranking", Icons.Default.EmojiEvents, AppDestinations.LEADERBOARD_ROUTE)
     )
 

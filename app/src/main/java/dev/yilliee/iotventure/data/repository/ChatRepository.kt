@@ -18,6 +18,7 @@ class ChatRepository(
 ) {
     companion object {
         private const val TAG = "ChatRepository"
+        private const val MESSAGE_FETCH_INTERVAL = 5000L // 5 seconds
     }
 
     /**
@@ -74,9 +75,38 @@ class ChatRepository(
     }
 
     /**
+     * Sends a message to the server and updates local storage
+     */
+    suspend fun sendMessage(text: String): Result<TeamMessage> {
+        return withContext(Dispatchers.IO) {
+            try {
+                // First add message locally
+                val localMessage = addLocalMessage(text)
+
+                // Then try to send to server
+                val result = apiService.sendMessage(text)
+
+                if (result.isSuccess) {
+                    // Message sent successfully
+                    Log.d(TAG, "Message sent successfully")
+                    return@withContext Result.success(localMessage)
+                } else {
+                    // Message failed to send, but we keep it locally
+                    Log.e(TAG, "Failed to send message: ${result.exceptionOrNull()?.message}")
+                    return@withContext Result.success(localMessage)
+                }
+            } catch (e: Exception) {
+                // Network error, but we keep the message locally
+                Log.e(TAG, "Network error sending message", e)
+                return@withContext Result.success(addLocalMessage(text))
+            }
+        }
+    }
+
+    /**
      * Adds a new message to local storage
      */
-    fun addLocalMessage(text: String): TeamMessage {
+    private fun addLocalMessage(text: String): TeamMessage {
         val existingMessages = preferencesManager.getTeamMessages()
         val newId = if (existingMessages.isEmpty()) 1 else existingMessages.maxOf { it.id } + 1
 
@@ -133,7 +163,6 @@ class ChatRepository(
             val date = inputFormat.parse(timestamp)
             SimpleDateFormat("hh:mm a", Locale.getDefault()).format(date ?: Date())
         } catch (e: Exception) {
-            Log.e(TAG, "Error formatting timestamp", e)
             // Fallback to original timestamp if parsing fails
             timestamp
         }

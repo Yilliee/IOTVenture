@@ -56,11 +56,6 @@ fun LoginScreen(
     val loginState by viewModel.loginState.collectAsState()
     val scope = rememberCoroutineScope()
 
-    // Log current server settings
-    LaunchedEffect(Unit) {
-        Log.d("LoginScreen", "Current server settings: ${preferencesManager.getServerIp()}:${preferencesManager.getServerPort()}")
-    }
-
     // Handle login state changes
     LaunchedEffect(loginState) {
         when (loginState) {
@@ -69,11 +64,9 @@ fun LoginScreen(
                 viewModel.resetState()
             }
             is LoginViewModel.LoginState.ConnectionSuccess -> {
-                // Show a toast or snackbar for successful connection
                 Toast.makeText(context, "Server connection successful!", Toast.LENGTH_SHORT).show()
             }
             is LoginViewModel.LoginState.ConnectionError -> {
-                // Show a toast or snackbar for connection error
                 val errorMessage = (loginState as LoginViewModel.LoginState.ConnectionError).message
                 Toast.makeText(context, "Connection error: $errorMessage", Toast.LENGTH_LONG).show()
             }
@@ -85,7 +78,7 @@ fun LoginScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
-            .imePadding() // Add this to handle keyboard
+            .imePadding()
     ) {
         Column(
             modifier = Modifier
@@ -144,32 +137,9 @@ fun LoginScreen(
                 },
                 onTestConnection = {
                     viewModel.testServerConnection()
-                }
+                },
+                onNavigateToScreen = onNavigateToScreen
             )
-
-            // Device transfer button
-            OutlinedButton(
-                onClick = { onNavigateToScreen(AppDestinations.DEVICE_TRANSFER_RECEIVER_ROUTE) },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 8.dp),
-                colors = ButtonDefaults.outlinedButtonColors(
-                    contentColor = Gold
-                ),
-                border = BorderStroke(1.dp, Gold)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.PhoneAndroid,
-                    contentDescription = "Receive",
-                    modifier = Modifier.size(20.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = "Receive Progress from Another Device",
-                    style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = FontWeight.Medium
-                )
-            }
 
             // Display current server settings
             Spacer(modifier = Modifier.height(16.dp))
@@ -206,7 +176,6 @@ fun LoginScreen(
             ServerSettingsDialog(
                 onDismiss = { showServerSettings = false },
                 onSave = { ip, port ->
-                    // Update server settings and test connection
                     preferencesManager.saveServerSettings(ip, port)
                     apiService.updateServerSettings(ip, port)
                     scope.launch {
@@ -227,19 +196,9 @@ private fun LoginContent(
     isLoading: Boolean,
     errorMessage: String,
     onSubmit: () -> Unit,
-    onTestConnection: () -> Unit
+    onTestConnection: () -> Unit,
+    onNavigateToScreen: (String) -> Unit
 ) {
-    // Add a note about teamId
-    Text(
-        text = "Using default Team ID: 1 (Tech Wizards)",
-        style = MaterialTheme.typography.bodyMedium,
-        color = Gold,
-        textAlign = TextAlign.Center,
-        modifier = Modifier.fillMaxWidth()
-    )
-
-    Spacer(Modifier.height(16.dp))
-
     OutlinedTextField(
         value = username,
         onValueChange = onUsernameChange,
@@ -329,6 +288,29 @@ private fun LoginContent(
         )
         Spacer(modifier = Modifier.width(8.dp))
         Text("Test Server Connection")
+    }
+
+    // Device transfer button
+    Spacer(Modifier.height(16.dp))
+    OutlinedButton(
+        onClick = { onNavigateToScreen(AppDestinations.DEVICE_TRANSFER_RECEIVER_ROUTE) },
+        modifier = Modifier.fillMaxWidth(),
+        colors = ButtonDefaults.outlinedButtonColors(
+            contentColor = Gold
+        ),
+        border = BorderStroke(1.dp, Gold)
+    ) {
+        Icon(
+            imageVector = Icons.Default.PhoneAndroid,
+            contentDescription = "Receive",
+            modifier = Modifier.size(20.dp)
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(
+            text = "Receive Progress from Another Device",
+            style = MaterialTheme.typography.bodyLarge,
+            fontWeight = FontWeight.Medium
+        )
     }
 
     Spacer(Modifier.height(24.dp))

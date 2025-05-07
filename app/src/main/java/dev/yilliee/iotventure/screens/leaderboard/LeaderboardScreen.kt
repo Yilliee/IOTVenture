@@ -58,7 +58,7 @@ fun LeaderboardScreen(
                 apiService.getLeaderboard().fold(
                     onSuccess = { response ->
                         // Sort teams by points in descending order
-                        val sortedTeams = response.leaderboard.sortedByDescending { it.totalPoints }
+                        val sortedTeams = response.teamSolves.sortedByDescending { it.totalPoints }
                         
                         // Calculate ranks with ties
                         var currentRank = 1
@@ -75,11 +75,11 @@ fun LeaderboardScreen(
                             }
                             
                             TeamData(
-                                id = index + 1,
-                                name = team.teamName,
+                                id = team.teamId,
+                                name = team.name,
                                 rank = currentRank,
                                 points = team.totalPoints,
-                                solvedChallenges = team.solvedChallenges
+                                solvedChallenges = team.solves.count { it.solved }
                             )
                         }
                         isOnline = true

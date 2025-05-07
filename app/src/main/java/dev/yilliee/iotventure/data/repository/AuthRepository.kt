@@ -54,7 +54,7 @@ class AuthRepository(
 
                     // Fetch team solves to update solved challenges
                     Log.d(TAG, "Fetching team solves after login")
-                    gameRepository.fetchTeamSolves()
+
 
                     // Fetch and store messages
                     Log.d(TAG, "Fetching messages after login")
@@ -125,9 +125,7 @@ class AuthRepository(
         val hasUsername = preferencesManager.getUsername() != null
         val hasPassword = preferencesManager.getPassword() != null
 
-        val isLoggedIn = hasToken && hasUsername && hasPassword
-        Log.d(TAG, "isLoggedIn check: $isLoggedIn (token: $hasToken, username: $hasUsername, password: $hasPassword)")
-        return isLoggedIn
+        return hasToken && hasUsername && hasPassword
     }
 
     /**

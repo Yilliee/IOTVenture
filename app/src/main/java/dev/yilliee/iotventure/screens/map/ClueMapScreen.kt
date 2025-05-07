@@ -85,12 +85,14 @@ fun ClueMapScreen(
             Configuration.getInstance().apply {
                 osmdroidBasePath = osmdroidDir
                 osmdroidTileCache = osmdroidDir
-                tileFileSystemCacheMaxBytes = 1024L * 1024L * 10L // 10MB
-                tileFileSystemCacheTrimBytes = 1024L * 1024L * 8L // 8MB
-                tileDownloadThreads = 2
-                tileFileSystemThreads = 8
+                tileFileSystemCacheMaxBytes = 1024L * 1024L * 50L // 50MB
+                tileFileSystemCacheTrimBytes = 1024L * 1024L * 40L // 40MB
+                tileDownloadThreads = 8
+                tileFileSystemThreads = 16
+                userAgentValue = "IOTVenture/1.0"
+                gpsWaitTime = 1000L
             }
-            Log.d("ClueMapScreen", "OSMDroid configuration initialized")
+            Log.d("ClueMapScreen", "OSMDroid configuration initialized with path: ${osmdroidDir.absolutePath}")
         } catch (e: Exception) {
             Log.e("ClueMapScreen", "Error initializing OSMDroid configuration", e)
         }
@@ -187,6 +189,73 @@ fun ClueMapScreen(
         }
     }
 
+    // Handle map overlays
+    LaunchedEffect(challenges.value, userLocation.value, hasLocationPermission.value) {
+        mapViewRef.value?.let { mapView ->
+            try {
+                mapView.overlays.clear()
+
+                // Add user location marker
+                userLocation.value?.let { location ->
+                    val locationOverlay = Marker(mapView).apply {
+                        position = location
+                        setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+                        icon = ContextCompat.getDrawable(context, R.drawable.ic_my_location)
+                        setOnMarkerClickListener { _, _ -> true }
+                    }
+                    mapView.overlays.add(locationOverlay)
+                }
+
+                // Add challenge markers
+                challenges.value.forEach { challenge ->
+                    try {
+                        val geoPoint = GeoPoint(
+                            challenge.location.topLeft.lat,
+                            challenge.location.topLeft.lng
+                        )
+
+                        // Create polygon for challenge area
+                        val polygon = Polygon(mapView).apply {
+                            outlinePaint.color = dev.yilliee.iotventure.ui.theme.Gold.toArgb()
+                            outlinePaint.strokeWidth = 3f
+                            fillPaint.color = dev.yilliee.iotventure.ui.theme.Gold.copy(alpha = 0.2f).toArgb()
+
+                            // Create rectangle points
+                            val points = listOf(
+                                GeoPoint(challenge.location.topLeft.lat, challenge.location.topLeft.lng),
+                                GeoPoint(challenge.location.topLeft.lat, challenge.location.bottomRight.lng),
+                                GeoPoint(challenge.location.bottomRight.lat, challenge.location.bottomRight.lng),
+                                GeoPoint(challenge.location.bottomRight.lat, challenge.location.topLeft.lng)
+                            )
+                            setPoints(points)
+                        }
+                        mapView.overlays.add(polygon)
+
+                        val marker = Marker(mapView).apply {
+                            position = geoPoint
+                            title = challenge.name
+                            snippet = "${challenge.points} points"
+                            setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+                            icon = ContextCompat.getDrawable(context, R.drawable.ic_location_on)
+
+                            setOnMarkerClickListener { _, _ ->
+                                selectedChallenge.value = challenge
+                                true
+                            }
+                        }
+                        mapView.overlays.add(marker)
+                    } catch (e: Exception) {
+                        Log.e("ClueMapScreen", "Error creating marker for challenge ${challenge.id}", e)
+                    }
+                }
+
+                mapView.invalidate()
+            } catch (e: Exception) {
+                Log.e("ClueMapScreen", "Error updating map overlays", e)
+            }
+        }
+    }
+
     Scaffold(
         topBar = {
             MapTopBar(
@@ -237,69 +306,7 @@ fun ClueMapScreen(
                         }
                     }
                 },
-                modifier = Modifier.fillMaxSize(),
-                update = { mapView ->
-                    try {
-                        mapView.overlays.clear()
-
-                        // Add user location marker
-                        userLocation.value?.let { location ->
-                            val locationOverlay = Marker(mapView).apply {
-                                position = location
-                                setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
-                                icon = ContextCompat.getDrawable(context, R.drawable.ic_my_location)
-                                // Disable popup for user location marker
-                                setOnMarkerClickListener { _, _ -> true }
-                            }
-                            mapView.overlays.add(locationOverlay)
-                        }
-
-                        // Add challenge markers
-                        challenges.value.forEach { challenge ->
-                            try {
-                                val geoPoint = GeoPoint(
-                                    challenge.location.topLeft.lat,
-                                    challenge.location.topLeft.lng
-                                )
-
-                                // Create polygon for challenge area
-                                val polygon = Polygon(mapView).apply {
-                                    outlinePaint.color = dev.yilliee.iotventure.ui.theme.Gold.toArgb()
-                                    outlinePaint.strokeWidth = 3f
-                                    fillPaint.color = dev.yilliee.iotventure.ui.theme.Gold.copy(alpha = 0.2f).toArgb()
-
-                                    // Create rectangle points
-                                    val points = listOf(
-                                        GeoPoint(challenge.location.topLeft.lat, challenge.location.topLeft.lng),
-                                        GeoPoint(challenge.location.topLeft.lat, challenge.location.bottomRight.lng),
-                                        GeoPoint(challenge.location.bottomRight.lat, challenge.location.bottomRight.lng),
-                                        GeoPoint(challenge.location.bottomRight.lat, challenge.location.topLeft.lng)
-                                    )
-                                    setPoints(points)
-                                }
-                                mapView.overlays.add(polygon)
-
-                                val marker = Marker(mapView).apply {
-                                    position = geoPoint
-                                    title = challenge.name
-                                    snippet = "${challenge.points} points"
-                                    setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
-                                    icon = ContextCompat.getDrawable(context, R.drawable.ic_location_on)
-
-                                    setOnMarkerClickListener { _, _ ->
-                                        selectedChallenge.value = challenge
-                                        true
-                                    }
-                                }
-                                mapView.overlays.add(marker)
-                            } catch (e: Exception) {
-                                Log.e("ClueMapScreen", "Error creating marker for challenge ${challenge.id}", e)
-                            }
-                        }
-                    } catch (e: Exception) {
-                        Log.e("ClueMapScreen", "Error updating map overlays", e)
-                    }
-                }
+                modifier = Modifier.fillMaxSize()
             )
 
             // Map Controls Column

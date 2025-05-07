@@ -5,8 +5,6 @@ import dev.yilliee.iotventure.data.model.LoginRequest
 import dev.yilliee.iotventure.data.model.LoginResponse
 import dev.yilliee.iotventure.data.model.MessageResponse
 import dev.yilliee.iotventure.data.model.LeaderboardResponse
-import dev.yilliee.iotventure.data.model.TeamSolvesResponse
-import dev.yilliee.iotventure.data.model.TeamMembersResponse
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -15,6 +13,7 @@ import java.io.InputStreamReader
 import java.net.HttpURLConnection
 import java.net.URL
 import kotlinx.serialization.encodeToString
+import kotlinx.serialization.Serializable
 
 /**
  * Service class for handling all API communications with the server
@@ -34,9 +33,9 @@ class ApiService {
     }
 
     // Server configuration
-    private var serverIp = "192.168.100.18"
-    private var serverPort = "3000"
-    private var baseUrl = "http://$serverIp:$serverPort"
+    private var serverIp = "iotventure.yilliee.me"
+    private var serverPort = "443"  // HTTPS port
+    private var baseUrl = "https://$serverIp"
 
     // Authentication token
     private var deviceToken: String? = null
@@ -47,8 +46,12 @@ class ApiService {
     fun updateServerSettings(ip: String, port: String) {
         serverIp = ip
         serverPort = port
-        baseUrl = "http://$serverIp:$serverPort"
-        Log.d(TAG, "Server settings updated to $serverIp:$serverPort")
+        baseUrl = if (port == "443") {
+            "https://$serverIp"
+        } else {
+            "http://$serverIp:$serverPort"
+        }
+        Log.d(TAG, "Server settings updated to $baseUrl")
     }
 
     /**
@@ -63,7 +66,7 @@ class ApiService {
      * Gets the base URL for API requests
      */
     private fun getBaseUrl(): String {
-        return "http://$serverIp:$serverPort"
+        return baseUrl
     }
 
     /**
@@ -93,12 +96,11 @@ class ApiService {
                 connection.connectTimeout = CONNECT_TIMEOUT
                 connection.readTimeout = READ_TIMEOUT
 
-                // Create request body in the format expected by the server
+                // Create request body with only team name and password
                 val requestBody = json.encodeToString(
                     mapOf(
                         "username" to username,
-                        "password" to password,
-                        "device_name" to deviceName
+                        "password" to password
                     )
                 )
 
@@ -130,7 +132,12 @@ class ApiService {
                 } else {
                     val errorResponse = BufferedReader(InputStreamReader(connection.errorStream)).use { it.readText() }
                     Log.e(TAG, "Login error response: $errorResponse")
-                    Result.failure(Exception("Login failed: $errorResponse"))
+                    try {
+                        val errorJson = json.decodeFromString<Map<String, String>>(errorResponse)
+                        Result.failure(Exception(errorJson["error"] ?: "Login failed"))
+                    } catch (e: Exception) {
+                        Result.failure(Exception("Login failed: $errorResponse"))
+                    }
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Login network error", e)
@@ -140,15 +147,15 @@ class ApiService {
     }
 
     /**
-     * Fetches team solves from the server
+     * Retrieves the current leaderboard
      */
-    suspend fun getTeamSolves(): Result<TeamSolvesResponse> {
+    suspend fun getLeaderboard(): Result<LeaderboardResponse> {
         return withContext(Dispatchers.IO) {
             try {
                 val baseUrl = getBaseUrl()
-                Log.d(TAG, "Fetching team solves")
+                Log.d(TAG, "Fetching leaderboard")
 
-                val url = URL("$baseUrl/api/team/solves")
+                val url = URL("$baseUrl/api/leaderboard")
                 val connection = url.openConnection() as HttpURLConnection
                 connection.requestMethod = "GET"
                 addAuthHeader(connection)
@@ -158,19 +165,19 @@ class ApiService {
 
                 // Process response
                 val responseCode = connection.responseCode
-                Log.d(TAG, "Team solves response code: $responseCode")
+                Log.d(TAG, "Leaderboard response code: $responseCode")
 
                 if (responseCode == HttpURLConnection.HTTP_OK) {
                     val response = BufferedReader(InputStreamReader(connection.inputStream)).use { it.readText() }
-                    val solvesResponse = json.decodeFromString<TeamSolvesResponse>(response)
-                    Result.success(solvesResponse)
+                    val leaderboardResponse = json.decodeFromString<LeaderboardResponse>(response)
+                    Result.success(leaderboardResponse)
                 } else {
                     val errorResponse = BufferedReader(InputStreamReader(connection.errorStream)).use { it.readText() }
-                    Log.e(TAG, "Team solves error: $errorResponse")
-                    Result.failure(Exception("Failed to get team solves: $errorResponse"))
+                    Log.e(TAG, "Leaderboard error: $errorResponse")
+                    Result.failure(Exception("Failed to get leaderboard: $errorResponse"))
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Team solves network error", e)
+                Log.e(TAG, "Leaderboard network error", e)
                 Result.failure(e)
             }
         }
@@ -179,28 +186,32 @@ class ApiService {
     /**
      * Logs out the current user
      */
-    suspend fun logout(): Result<Boolean> {
+    suspend fun logout(): Result<Unit> {
         return withContext(Dispatchers.IO) {
             try {
                 val baseUrl = getBaseUrl()
-                val url = URL("$baseUrl/api/team/logout")
+                Log.d(TAG, "Logging out user")
+
+                val url = URL("$baseUrl/api/logout")
                 val connection = url.openConnection() as HttpURLConnection
                 connection.requestMethod = "POST"
                 addAuthHeader(connection)
-                connection.setRequestProperty("Accept", "application/json")
                 connection.connectTimeout = CONNECT_TIMEOUT
                 connection.readTimeout = READ_TIMEOUT
 
+                // Process response
                 val responseCode = connection.responseCode
+                Log.d(TAG, "Logout response code: $responseCode")
+
                 if (responseCode == HttpURLConnection.HTTP_OK) {
-                    // Clear token on successful logout
-                    deviceToken = null
-                    Result.success(true)
+                    Result.success(Unit)
                 } else {
-                    Result.failure(Exception("Logout failed with code: $responseCode"))
+                    val errorResponse = BufferedReader(InputStreamReader(connection.errorStream)).use { it.readText() }
+                    Log.e(TAG, "Logout error: $errorResponse")
+                    Result.failure(Exception("Failed to logout: $errorResponse"))
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Logout error", e)
+                Log.e(TAG, "Logout network error", e)
                 Result.failure(e)
             }
         }
@@ -258,43 +269,6 @@ class ApiService {
     }
 
     /**
-     * Retrieves the current leaderboard
-     */
-    suspend fun getLeaderboard(): Result<LeaderboardResponse> {
-        return withContext(Dispatchers.IO) {
-            try {
-                val baseUrl = getBaseUrl()
-                Log.d(TAG, "Fetching leaderboard data")
-
-                val url = URL("$baseUrl/api/leaderboard")
-                val connection = url.openConnection() as HttpURLConnection
-                connection.requestMethod = "GET"
-                addAuthHeader(connection)
-                connection.setRequestProperty("Accept", "application/json")
-                connection.connectTimeout = CONNECT_TIMEOUT
-                connection.readTimeout = READ_TIMEOUT
-
-                // Process response
-                val responseCode = connection.responseCode
-                Log.d(TAG, "Leaderboard response code: $responseCode")
-
-                if (responseCode == HttpURLConnection.HTTP_OK) {
-                    val response = BufferedReader(InputStreamReader(connection.inputStream)).use { it.readText() }
-                    val leaderboardResponse = json.decodeFromString<LeaderboardResponse>(response)
-                    Result.success(leaderboardResponse)
-                } else {
-                    val errorResponse = BufferedReader(InputStreamReader(connection.errorStream)).use { it.readText() }
-                    Log.e(TAG, "Leaderboard error: $errorResponse")
-                    Result.failure(Exception("Failed to get leaderboard: $errorResponse"))
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Leaderboard network error", e)
-                Result.failure(e)
-            }
-        }
-    }
-
-    /**
      * Retrieves team messages
      */
     suspend fun getMessages(): Result<MessageResponse> {
@@ -334,11 +308,11 @@ class ApiService {
     /**
      * Sends a team message
      */
-    suspend fun sendMessage(content: String): Result<Boolean> {
+    suspend fun sendMessage(content: String): Result<MessageResponse> {
         return withContext(Dispatchers.IO) {
             try {
                 val baseUrl = getBaseUrl()
-                Log.d(TAG, "Sending message")
+                Log.d(TAG, "Sending message: $content")
 
                 val url = URL("$baseUrl/api/messages")
                 val connection = url.openConnection() as HttpURLConnection
@@ -350,14 +324,8 @@ class ApiService {
                 connection.connectTimeout = CONNECT_TIMEOUT
                 connection.readTimeout = READ_TIMEOUT
 
-                // Create request body
-                val requestBody = """
-                    {
-                        "content": "$content"
-                    }
-                """.trimIndent()
-
-                // Send request
+                // Write request body
+                val requestBody = json.encodeToString(MessageRequest(content))
                 connection.outputStream.use { os ->
                     os.write(requestBody.toByteArray())
                     os.flush()
@@ -368,7 +336,9 @@ class ApiService {
                 Log.d(TAG, "Send message response code: $responseCode")
 
                 if (responseCode == HttpURLConnection.HTTP_OK) {
-                    Result.success(true)
+                    val response = BufferedReader(InputStreamReader(connection.inputStream)).use { it.readText() }
+                    val messageResponse = json.decodeFromString<MessageResponse>(response)
+                    Result.success(messageResponse)
                 } else {
                     val errorResponse = BufferedReader(InputStreamReader(connection.errorStream)).use { it.readText() }
                     Log.e(TAG, "Send message error: $errorResponse")
@@ -442,39 +412,8 @@ class ApiService {
         }
     }
 
-    /**
-     * Retrieves team members
-     */
-    suspend fun getTeamMembers(): Result<TeamMembersResponse> {
-        return withContext(Dispatchers.IO) {
-            try {
-                val baseUrl = getBaseUrl()
-                Log.d(TAG, "Fetching team members")
-
-                val url = URL("$baseUrl/api/team/members")
-                val connection = url.openConnection() as HttpURLConnection
-                connection.requestMethod = "GET"
-                addAuthHeader(connection)
-                connection.setRequestProperty("Accept", "application/json")
-                connection.connectTimeout = CONNECT_TIMEOUT
-                connection.readTimeout = READ_TIMEOUT
-
-                val responseCode = connection.responseCode
-                Log.d(TAG, "Team members response code: $responseCode")
-
-                if (responseCode == HttpURLConnection.HTTP_OK) {
-                    val response = BufferedReader(InputStreamReader(connection.inputStream)).use { it.readText() }
-                    val teamMembersResponse = json.decodeFromString<TeamMembersResponse>(response)
-                    Result.success(teamMembersResponse)
-                } else {
-                    val errorResponse = BufferedReader(InputStreamReader(connection.errorStream)).use { it.readText() }
-                    Log.e(TAG, "Team members error: $errorResponse")
-                    Result.failure(Exception("Failed to get team members: $errorResponse"))
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Team members network error", e)
-                Result.failure(e)
-            }
-        }
-    }
+    @Serializable
+    private data class MessageRequest(
+        val content: String
+    )
 }
