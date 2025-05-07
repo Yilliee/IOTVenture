@@ -6,11 +6,14 @@ import dev.yilliee.iotventure.data.model.NfcValidationResult
 import dev.yilliee.iotventure.data.model.TeamSolve
 import dev.yilliee.iotventure.data.remote.ApiService
 import dev.yilliee.iotventure.data.local.PreferencesManager
+import dev.yilliee.iotventure.data.model.TeamMember
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
 
 class GameRepository(
     private val preferencesManager: PreferencesManager,
@@ -69,6 +72,9 @@ class GameRepository(
 
                     // Update state flow
                     _solvedChallenges.value = solvedChallengeIds
+
+                    // Reload challenges to ensure UI is updated
+                    loadChallengesFromPreferences()
 
                     Log.d(TAG, "Updated solved challenges with team solves: $solvedChallengeIds")
                 }
@@ -303,6 +309,30 @@ class GameRepository(
         } catch (e: Exception) {
             Log.e(TAG, "Server connection test failed", e)
             Result.failure(e)
+        }
+    }
+
+    suspend fun getTeamMembers(): List<TeamMember> {
+        return withContext(Dispatchers.IO) {
+            try {
+                val result = apiService.getTeamMembers()
+                if (result.isSuccess) {
+                    result.getOrNull()?.members?.map { member ->
+                        TeamMember(
+                            username = member.username,
+                            lastActive = member.lastActive,
+                            solvedChallenges = member.solvedChallenges,
+                            isCurrentUser = false
+                        )
+                    } ?: emptyList()
+                } else {
+                    Log.e(TAG, "Error fetching team members: ${result.exceptionOrNull()?.message}")
+                    emptyList()
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error fetching team members", e)
+                emptyList()
+            }
         }
     }
 }

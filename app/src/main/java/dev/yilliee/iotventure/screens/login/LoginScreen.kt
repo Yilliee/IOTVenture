@@ -2,16 +2,14 @@ package dev.yilliee.iotventure.screens.login
 
 import android.content.res.Configuration
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Wifi
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -26,16 +24,18 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import dev.yilliee.iotventure.di.ServiceLocator
+import dev.yilliee.iotventure.navigation.AppDestinations
+import dev.yilliee.iotventure.ui.theme.*
 import kotlinx.coroutines.launch
-import dev.yilliee.iotventure.ui.theme.DarkSurface
-import dev.yilliee.iotventure.ui.theme.Gold
-import dev.yilliee.iotventure.ui.theme.TextGray
 import android.util.Log
 import android.widget.Toast
+import androidx.compose.ui.text.font.FontWeight
 
 @Composable
 fun LoginScreen(
-    onLoginSuccess: () -> Unit
+    onLoginSuccess: () -> Unit,
+    onDeviceTransferClick: () -> Unit,
+    onNavigateToScreen: (String) -> Unit
 ) {
     val context = LocalContext.current
     val preferencesManager = remember { ServiceLocator.providePreferencesManager(context) }
@@ -146,6 +146,30 @@ fun LoginScreen(
                     viewModel.testServerConnection()
                 }
             )
+
+            // Device transfer button
+            OutlinedButton(
+                onClick = { onNavigateToScreen(AppDestinations.DEVICE_TRANSFER_RECEIVER_ROUTE) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp),
+                colors = ButtonDefaults.outlinedButtonColors(
+                    contentColor = Gold
+                ),
+                border = BorderStroke(1.dp, Gold)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.PhoneAndroid,
+                    contentDescription = "Receive",
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Receive Progress from Another Device",
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Medium
+                )
+            }
 
             // Display current server settings
             Spacer(modifier = Modifier.height(16.dp))

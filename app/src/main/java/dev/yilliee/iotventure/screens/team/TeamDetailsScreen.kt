@@ -20,10 +20,13 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import dev.yilliee.iotventure.data.local.PreferencesManager
 import dev.yilliee.iotventure.data.model.Challenge
+import dev.yilliee.iotventure.data.model.SolvedChallenge
+import dev.yilliee.iotventure.data.model.TeamMember
 import dev.yilliee.iotventure.di.ServiceLocator
 import dev.yilliee.iotventure.ui.theme.*
 import java.text.SimpleDateFormat
 import java.util.*
+import kotlinx.coroutines.launch
 
 @Composable
 fun TeamDetailsScreen(
@@ -32,10 +35,15 @@ fun TeamDetailsScreen(
     val context = LocalContext.current
     val preferencesManager = remember { ServiceLocator.providePreferencesManager(context) }
     val gameRepository = remember { ServiceLocator.provideGameRepository(context) }
+    val scope = rememberCoroutineScope()
 
     // Get team data from preferences
     val teamName = remember { preferencesManager.getTeamName() ?: "Your Team" }
-    val username = remember { preferencesManager.getUsername() ?: "Unknown User" }
+    val currentUsername = remember { preferencesManager.getUsername() ?: "Unknown User" }
+
+    // State for team members
+    var teamMembers by remember { mutableStateOf<List<TeamMember>>(emptyList()) }
+    var isLoading by remember { mutableStateOf(true) }
 
     // Get solved challenges
     val solvedChallengesIds = remember { preferencesManager.getSolvedChallenges() }
@@ -54,6 +62,25 @@ fun TeamDetailsScreen(
         0
     }
 
+    // Fetch team members
+    LaunchedEffect(Unit) {
+        try {
+            val members = gameRepository.getTeamMembers()
+            teamMembers = members.map { member ->
+                TeamMember(
+                    username = member.username,
+                    lastActive = member.lastActive,
+                    solvedChallenges = member.solvedChallenges,
+                    isCurrentUser = member.username == currentUsername
+                )
+            }
+        } catch (e: Exception) {
+            // Handle error
+        } finally {
+            isLoading = false
+        }
+    }
+
     Scaffold(
         topBar = {
             TeamTopBar(onBackClick = onBackClick)
@@ -69,7 +96,7 @@ fun TeamDetailsScreen(
             // Team Card
             TeamCard(
                 teamName = teamName,
-                username = username,
+                username = currentUsername,
                 completedChallenges = completedChallenges,
                 totalPoints = totalPoints,
                 completionPercentage = completionPercentage
@@ -101,13 +128,24 @@ fun TeamDetailsScreen(
                 modifier = Modifier.padding(bottom = 12.dp)
             )
 
-            // Just show the current user since we don't have a list of team members
-            MemberCard(
-                name = username,
-                isCurrentUser = true,
-                solvedChallenges = completedChallenges,
-                points = totalPoints
-            )
+            if (isLoading) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(100.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator(color = Gold)
+                }
+            } else {
+                teamMembers.forEach { member ->
+                    MemberCard(
+                        member = member,
+                        preferencesManager = preferencesManager
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+            }
         }
     }
 }
@@ -249,54 +287,81 @@ fun StatItem(label: String, value: String) {
 }
 
 @Composable
-fun MemberCard(
-    name: String,
-    isCurrentUser: Boolean,
-    solvedChallenges: Int,
-    points: Int
+private fun MemberCard(
+    member: TeamMember,
+    preferencesManager: PreferencesManager,
+    modifier: Modifier = Modifier
 ) {
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
         colors = CardDefaults.cardColors(
-            containerColor = DarkSurface
-        ),
-        shape = MaterialTheme.shapes.medium
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
+        )
     ) {
         Column(
-            modifier = Modifier.padding(16.dp)
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
         ) {
-            Text(
-                text = name + (if (isCurrentUser) " (You)" else ""),
-                style = MaterialTheme.typography.titleMedium,
-                color = Gold,
-                fontWeight = FontWeight.Bold
-            )
-
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = if (member.isCurrentUser) "${member.username} (You)" else member.username,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = if (member.isCurrentUser) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = "Last Active: ${member.lastActive}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            
             Spacer(modifier = Modifier.height(8.dp))
-
-            Text(
-                text = "Solved Challenges: $solvedChallenges",
-                style = MaterialTheme.typography.bodyMedium,
-                color = TextWhite
-            )
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            Text(
-                text = "Points: $points",
-                style = MaterialTheme.typography.bodyMedium,
-                color = TextWhite
-            )
+            
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column {
+                    Text(
+                        text = "Solved Challenges",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = member.solvedChallenges.size.toString(),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+                Column {
+                    Text(
+                        text = "Total Points",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = member.solvedChallenges.sumOf { solvedChallenge: SolvedChallenge ->
+                            preferencesManager.getChallenges()
+                                .find { challenge -> challenge.id == solvedChallenge.challengeId }
+                                ?.points ?: 0
+                        }.toString(),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+            }
         }
     }
 }
 
 // Keep these for backward compatibility
-data class TeamMember(
-    val id: Int,
-    val name: String,
-    val cluesFound: Int
-)
 
 data class ClueFinding(
     val id: Int,
@@ -305,3 +370,8 @@ data class ClueFinding(
     val foundBy: String,
     val timestamp: String
 )
+
+private fun formatLastActive(timestamp: Long): String {
+    val date = Date(timestamp)
+    return SimpleDateFormat("MMM dd, HH:mm", Locale.getDefault()).format(date)
+}

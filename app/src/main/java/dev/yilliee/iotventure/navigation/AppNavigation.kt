@@ -14,11 +14,12 @@ import dev.yilliee.iotventure.screens.leaderboard.LeaderboardScreen
 import dev.yilliee.iotventure.screens.login.LoginScreen
 import dev.yilliee.iotventure.screens.map.ClueMapScreen
 import dev.yilliee.iotventure.screens.scan.ScanNfcScreen
-import dev.yilliee.iotventure.screens.settings.DeviceTransferScreen
+import dev.yilliee.iotventure.screens.transfer.DeviceTransferScreen
 import dev.yilliee.iotventure.screens.team.TeamDetailsScreen
 import dev.yilliee.iotventure.di.ServiceLocator
 import android.content.Context
 import androidx.compose.runtime.remember
+import dev.yilliee.iotventure.navigation.AppDestinations.DEVICE_TRANSFER_ROUTE
 
 object AppDestinations {
     const val LOGIN_ROUTE = "login"
@@ -28,14 +29,22 @@ object AppDestinations {
     const val SCAN_NFC_ROUTE = "scan_nfc"
     const val EMERGENCY_UNLOCK_ROUTE = "emergency_unlock"
     const val DEVICE_TRANSFER_ROUTE = "device_transfer"
+    const val DEVICE_TRANSFER_RECEIVER_ROUTE = "device_transfer/receiver"
     const val CLUE_MAP_ROUTE = "clue_map/{challengeId}"
     const val TEAM_DETAILS_ROUTE = "team_details"
+}
+
+sealed class Screen(val route: String) {
+    object Login : Screen("login")
+    object Dashboard : Screen("dashboard")
+    object TeamDetails : Screen("team_details")
+    object DeviceTransfer : Screen("device_transfer")
 }
 
 @Composable
 fun AppNavigation(
     navController: NavHostController = rememberNavController(),
-    startDestination: String = AppDestinations.LOGIN_ROUTE,
+    startDestination: String = Screen.Login.route,
     context: Context
 ) {
     val apiService = remember { ServiceLocator.provideApiService(context) }
@@ -44,23 +53,61 @@ fun AppNavigation(
         navController = navController,
         startDestination = startDestination
     ) {
-        composable(AppDestinations.LOGIN_ROUTE) {
+        composable(Screen.Login.route) {
             LoginScreen(
                 onLoginSuccess = {
-                    // Go directly to dashboard instead of hunts list
-                    navController.navigate(AppDestinations.DASHBOARD_ROUTE) {
-                        popUpTo(AppDestinations.LOGIN_ROUTE) { inclusive = true }
+                    navController.navigate(Screen.Dashboard.route) {
+                        popUpTo(Screen.Login.route) { inclusive = true }
+                    }
+                },
+                onDeviceTransferClick = {
+                    navController.navigate(Screen.DeviceTransfer.route)
+                },
+                onNavigateToScreen = { route ->
+                    navController.navigate(route)
+                }
+            )
+        }
+
+        composable(Screen.Dashboard.route) {
+            GameDashboardScreen(
+                onNavigateToScreen = { route ->
+                    navController.navigate(route)
+                },
+                onEmergencyClick = {
+                    navController.navigate(AppDestinations.EMERGENCY_UNLOCK_ROUTE)
+                }
+            )
+        }
+
+        composable(Screen.TeamDetails.route) {
+            TeamDetailsScreen(
+                onBackClick = {
+                    navController.popBackStack()
+                }
+            )
+        }
+
+        composable(route = AppDestinations.DEVICE_TRANSFER_ROUTE) {
+            DeviceTransferScreen(
+                onBackClick = { navController.popBackStack() },
+                onTransferComplete = {
+                    navController.navigate(AppDestinations.LOGIN_ROUTE) {
+                        popUpTo(AppDestinations.DASHBOARD_ROUTE) { inclusive = true }
                     }
                 }
             )
         }
 
-        composable(AppDestinations.DASHBOARD_ROUTE) {
-            GameDashboardScreen(
-                onNavigateToScreen = { route ->
-                    navController.navigate(route)
+        composable(route = AppDestinations.DEVICE_TRANSFER_RECEIVER_ROUTE) {
+            DeviceTransferScreen(
+                onBackClick = { navController.popBackStack() },
+                onTransferComplete = {
+                    navController.navigate(AppDestinations.DASHBOARD_ROUTE) {
+                        popUpTo(AppDestinations.LOGIN_ROUTE) { inclusive = true }
+                    }
                 },
-                onEmergencyClick = { navController.navigate(AppDestinations.EMERGENCY_UNLOCK_ROUTE) }
+                isReceiver = true
             )
         }
 
@@ -89,22 +136,11 @@ fun AppNavigation(
             EmergencyUnlockScreen(
                 onBackClick = { navController.popBackStack() },
                 onExitGame = {
-                    navController.navigate(AppDestinations.LOGIN_ROUTE) {
-                        popUpTo(AppDestinations.LOGIN_ROUTE) { inclusive = true }
+                    navController.navigate(Screen.Login.route) {
+                        popUpTo(Screen.Login.route) { inclusive = true }
                     }
                 },
                 onReturnToGame = { navController.popBackStack() }
-            )
-        }
-
-        composable(AppDestinations.DEVICE_TRANSFER_ROUTE) {
-            DeviceTransferScreen(
-                onBackClick = { navController.popBackStack() },
-                onTransferComplete = {
-                    navController.navigate(AppDestinations.LOGIN_ROUTE) {
-                        popUpTo(AppDestinations.LOGIN_ROUTE) { inclusive = true }
-                    }
-                }
             )
         }
 
@@ -124,12 +160,6 @@ fun AppNavigation(
                     navController.navigate(AppDestinations.SCAN_NFC_ROUTE)
                 },
                 initialChallengeId = challengeId
-            )
-        }
-
-        composable(AppDestinations.TEAM_DETAILS_ROUTE) {
-            TeamDetailsScreen(
-                onBackClick = { navController.popBackStack() }
             )
         }
     }

@@ -40,6 +40,7 @@ fun GameDashboardScreen(
     val authRepository = remember { ServiceLocator.provideAuthRepository(context) }
     val preferencesManager = remember { ServiceLocator.providePreferencesManager(context) }
     val scope = rememberCoroutineScope()
+    val snackbarHostState = remember { SnackbarHostState() }
 
     // Check authentication state when app resumes
     LaunchedEffect(Unit) {
@@ -105,11 +106,37 @@ fun GameDashboardScreen(
         while (true) {
             delay(30000) // 30 seconds
             try {
+                val previousSolvedIds = solvedChallengeIds.toSet()
                 gameRepository.fetchTeamSolves()
+                
+                // Check for newly solved challenges
+                val newSolvedIds = solvedChallengeIds - previousSolvedIds
+                if (newSolvedIds.isNotEmpty()) {
+                    // Find the challenge names for the newly solved challenges
+                    val newSolvedChallenges = challenges.filter { it.id in newSolvedIds }
+                    
+                    // Update completion percentage
+                    completionPercentage = gameRepository.getCompletionPercentage()
+                    
+                    // Show a snackbar notification for each new solve
+                    newSolvedChallenges.forEach { challenge ->
+                        scope.launch {
+                            snackbarHostState.showSnackbar(
+                                message = "Challenge solved: ${challenge.name}",
+                                duration = SnackbarDuration.Short
+                            )
+                        }
+                    }
+                }
             } catch (e: Exception) {
                 // Ignore errors, will try again
             }
         }
+    }
+
+    // Add this LaunchedEffect to refresh the UI when solved challenges change
+    LaunchedEffect(solvedChallengeIds) {
+        completionPercentage = gameRepository.getCompletionPercentage()
     }
 
     val completedChallenges = solvedChallengeIds.size
@@ -157,6 +184,9 @@ fun GameDashboardScreen(
                     }
                 }
             )
+        },
+        snackbarHost = {
+            SnackbarHost(hostState = snackbarHostState)
         }
     ) { paddingValues ->
         Column(
@@ -262,6 +292,31 @@ fun GameDashboardScreen(
                     }
                 )
             }
+
+            // Device Transfer Button
+            Button(
+                onClick = { onNavigateToScreen(AppDestinations.DEVICE_TRANSFER_ROUTE) },
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Gold,
+                    contentColor = DarkBackground
+                )
+            ) {
+                Icon(
+                    imageVector = Icons.Default.PhoneAndroid,
+                    contentDescription = "Device Transfer",
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Transfer to Another Device",
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+
+            // Extra space at bottom to account for bottom navigation
+            Spacer(modifier = Modifier.height(60.dp))
         }
     }
 }

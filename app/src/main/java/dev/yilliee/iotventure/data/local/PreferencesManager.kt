@@ -27,6 +27,7 @@ class PreferencesManager(context: Context) {
         private const val KEY_SOLVED_CHALLENGES = "solved_challenges"
         private const val KEY_SOLVE_QUEUE = "solve_queue"
         private const val KEY_GAME_START_TIME = "game_start_time"
+        private const val KEY_IS_LOGGED_IN = "is_logged_in"
     }
 
     private val prefs: SharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -34,6 +35,15 @@ class PreferencesManager(context: Context) {
         ignoreUnknownKeys = true;
         isLenient = true;
         coerceInputValues = true
+    }
+
+    // Login state
+    fun setLoggedIn(isLoggedIn: Boolean) {
+        prefs.edit().putBoolean(KEY_IS_LOGGED_IN, isLoggedIn).apply()
+    }
+
+    fun isLoggedIn(): Boolean {
+        return prefs.getBoolean(KEY_IS_LOGGED_IN, false)
     }
 
     // Login data
@@ -180,10 +190,10 @@ class PreferencesManager(context: Context) {
         // Save current server settings
         val currentIp = getServerIp()
         val currentPort = getServerPort()
-
+        
         // Clear all preferences
         prefs.edit().clear().apply()
-
+        
         // Restore server settings
         saveServerSettings(currentIp, currentPort)
     }

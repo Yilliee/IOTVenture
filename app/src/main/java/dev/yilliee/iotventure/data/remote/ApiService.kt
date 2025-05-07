@@ -6,6 +6,7 @@ import dev.yilliee.iotventure.data.model.LoginResponse
 import dev.yilliee.iotventure.data.model.MessageResponse
 import dev.yilliee.iotventure.data.model.LeaderboardResponse
 import dev.yilliee.iotventure.data.model.TeamSolvesResponse
+import dev.yilliee.iotventure.data.model.TeamMembersResponse
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -92,16 +93,16 @@ class ApiService {
                 connection.connectTimeout = CONNECT_TIMEOUT
                 connection.readTimeout = READ_TIMEOUT
 
-                // Create login request
-                val loginRequest = LoginRequest(
-                    teamId = 1, // Default team ID
-                    username = username,
-                    password = password,
-                    device_name = deviceName
+                // Create request body in the format expected by the server
+                val requestBody = json.encodeToString(
+                    mapOf(
+                        "username" to username,
+                        "password" to password,
+                        "device_name" to deviceName
+                    )
                 )
 
-                // Convert to JSON
-                val requestBody = json.encodeToString(loginRequest)
+                Log.d(TAG, "Request body: $requestBody")
 
                 // Send request
                 connection.outputStream.use { os ->
@@ -436,6 +437,42 @@ class ApiService {
                 Result.success(true)
             } catch (e: Exception) {
                 Log.e(TAG, "Server connection test failed", e)
+                Result.failure(e)
+            }
+        }
+    }
+
+    /**
+     * Retrieves team members
+     */
+    suspend fun getTeamMembers(): Result<TeamMembersResponse> {
+        return withContext(Dispatchers.IO) {
+            try {
+                val baseUrl = getBaseUrl()
+                Log.d(TAG, "Fetching team members")
+
+                val url = URL("$baseUrl/api/team/members")
+                val connection = url.openConnection() as HttpURLConnection
+                connection.requestMethod = "GET"
+                addAuthHeader(connection)
+                connection.setRequestProperty("Accept", "application/json")
+                connection.connectTimeout = CONNECT_TIMEOUT
+                connection.readTimeout = READ_TIMEOUT
+
+                val responseCode = connection.responseCode
+                Log.d(TAG, "Team members response code: $responseCode")
+
+                if (responseCode == HttpURLConnection.HTTP_OK) {
+                    val response = BufferedReader(InputStreamReader(connection.inputStream)).use { it.readText() }
+                    val teamMembersResponse = json.decodeFromString<TeamMembersResponse>(response)
+                    Result.success(teamMembersResponse)
+                } else {
+                    val errorResponse = BufferedReader(InputStreamReader(connection.errorStream)).use { it.readText() }
+                    Log.e(TAG, "Team members error: $errorResponse")
+                    Result.failure(Exception("Failed to get team members: $errorResponse"))
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Team members network error", e)
                 Result.failure(e)
             }
         }
