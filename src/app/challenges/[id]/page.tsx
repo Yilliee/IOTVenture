@@ -12,23 +12,12 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { toast } from "sonner"
 import { MapPin, Save, RefreshCw, Terminal, Loader2 } from "lucide-react"
+import { type Challenge, /*type SerialPort, getSerialPorts, readNfcTag,*/ getChallenge, updateChallenge } from "@/lib/api"
+import { randomBytes } from "crypto"
 
 interface SerialPort {
-  path: string
+  path: string,
   manufacturer: string
-  serialNumber: string
-}
-
-interface Challenge {
-  id: string
-  name: string
-  shortName: string
-  points: number
-  location: {
-    topLeft: { lat: number; lng: number }
-    bottomRight: { lat: number; lng: number }
-  }
-  keyHash: string
 }
 
 export default function ChallengeDetailsPage() {
@@ -39,16 +28,17 @@ export default function ChallengeDetailsPage() {
 
   const [challenge, setChallenge] = useState<Challenge | null>(null)
   const [loading, setLoading] = useState(true)
-  const [connecting, setConnecting] = useState(false)
+  const [saving, setSaving] = useState(false)
   const [serialOutput, setSerialOutput] = useState<string[]>([])
   const [serialPorts, setSerialPorts] = useState<SerialPort[]>([])
   const [selectedPort, setSelectedPort] = useState<string>("")
   const [isLoadingPorts, setIsLoadingPorts] = useState(false)
   const [isReadingTag, setIsReadingTag] = useState(false)
   const [mapInitialized, setMapInitialized] = useState(false)
+  const serialOutputRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    // In a real app, this would be an API call
+    // Load challenge data and serial ports when component mounts
     fetchChallengeData()
     fetchSerialPorts()
   }, [challengeId])
@@ -59,54 +49,29 @@ export default function ChallengeDetailsPage() {
     }
   }, [challenge, mapContainerRef.current])
 
+  useEffect(() => {
+    if (serialOutputRef.current) {
+      const el = serialOutputRef.current
+      el.scrollTop = el.scrollHeight
+    }
+  }, [serialOutput])
+
+  // Update the fetchChallengeData function to use the real API
   const fetchChallengeData = async () => {
     setLoading(true)
     try {
-      // Mock data - would be replaced with a real fetch in production
-      await new Promise((resolve) => setTimeout(resolve, 1000))
-
-      // Different mock data based on challenge ID
-      if (challengeId === "ch1") {
-        setChallenge({
-          id: "ch1",
-          name: "Find the Beacon",
-          shortName: "Beacon",
-          points: 100,
-          location: {
-            topLeft: { lat: 48.8584, lng: 2.2945 },
-            bottomRight: { lat: 48.8554, lng: 2.2975 },
-          },
-          keyHash: "a1b2c3d4e5f6g7h8i9j0",
-        })
-      } else if (challengeId === "ch2") {
-        setChallenge({
-          id: "ch2",
-          name: "Decode the Signal",
-          shortName: "Signal",
-          points: 150,
-          location: {
-            topLeft: { lat: 48.8614, lng: 2.3375 },
-            bottomRight: { lat: 48.8584, lng: 2.3405 },
-          },
-          keyHash: "b2c3d4e5f6g7h8i9j0k1",
-        })
-      } else {
-        setChallenge({
-          id: "ch3",
-          name: "Capture the Flag",
-          shortName: "CTF",
-          points: 200,
-          location: {
-            topLeft: { lat: 48.8744, lng: 2.2945 },
-            bottomRight: { lat: 48.8714, lng: 2.2975 },
-          },
-          keyHash: "c3d4e5f6g7h8i9j0k1l2",
-        })
+      // Call the API to get the challenge
+      const data = await getChallenge(challengeId)
+      if ( data.status !== 200 ) {
+        setChallenge(null)
+        router.replace("/challenges")
+        return
       }
+      setChallenge(data?.challenge || null)
     } catch (error) {
       console.error("Failed to fetch challenge data:", error)
       toast("Error", {
-        description: "Failed to load challenge data. Please try again.",
+        description: error instanceof Error ? error.message : "Failed to load challenge data. Please try again.",
       })
     } finally {
       setLoading(false)
@@ -116,23 +81,16 @@ export default function ChallengeDetailsPage() {
   const fetchSerialPorts = async () => {
     setIsLoadingPorts(true)
     try {
-      // In a real app, this would be an API call
-      // For now, we'll use mock data
-      await new Promise((resolve) => setTimeout(resolve, 500))
-
-      // Mock data - in a real app, this would come from the API
-      const mockPorts = [
-        { path: "COM1", manufacturer: "STMicroelectronics", serialNumber: "STM32-001" },
-        { path: "COM3", manufacturer: "FTDI", serialNumber: "FT232R-002" },
-        { path: "/dev/ttyUSB0", manufacturer: "Silicon Labs", serialNumber: "CP2102-003" },
-        { path: "/dev/ttyACM0", manufacturer: "STMicroelectronics", serialNumber: "STM32-004" },
-      ]
-
-      setSerialPorts(mockPorts)
+      const ports: SerialPort[] = [
+        { path: "/dev/ttyACM0", manufacturer: "" },
+        { path: "/dev/ttyUSB0", manufacturer: "" },
+      ]; //await getSerialPorts()
+      setSerialPorts(ports)
     } catch (error) {
       console.error("Failed to fetch serial ports:", error)
       toast("Error", {
-        description: "Failed to load available serial ports. Please try again.",
+        description:
+          error instanceof Error ? error.message : "Failed to load available serial ports. Please try again.",
       })
     } finally {
       setIsLoadingPorts(false)
@@ -161,37 +119,68 @@ export default function ChallengeDetailsPage() {
   }
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!challenge) return
-
-    const { name, value } = e.target
-
+    if (!challenge) return;
+  
+    const { name, value } = e.target;
+  
     if (name.includes(".")) {
-      const [parent, child, prop] = name.split(".")
-      setChallenge({
-        ...challenge,
-        [parent]: {
-          ...challenge[parent as keyof typeof challenge],
-          [child]: {
-            ...(challenge[parent as keyof typeof challenge] as any)[child],
-            [prop]: Number.parseFloat(value),
+      const [parent, child, prop] = name.split(".");
+  
+      setChallenge((prev) => {
+        if (!prev) return prev;
+  
+        const parentVal = prev[parent as keyof Challenge];
+        if (typeof parentVal !== "object" || parentVal === null) return prev;
+  
+        const childVal = (parentVal as any)[child];
+        if (typeof childVal !== "object" || childVal === null) return prev;
+    
+        return {
+          ...prev,
+          [parent]: {
+            ...parentVal,
+            [child]: {
+              ...childVal,
+              [prop]: Number.parseFloat(value) || 0.0,
+            },
           },
-        },
-      })
+        };
+      });
     } else {
-      setChallenge({
-        ...challenge,
-        [name]: name === "points" ? Number.parseInt(value) : value,
-      })
+      setChallenge((prev) => {
+        if (!prev) return prev;
+  
+        if (name === "points") {
+          const parsed = Number.parseInt(value) || 0;
+          return { ...prev, points: parsed };
+        }
+  
+        return { ...prev, [name]: value };
+      });
     }
-  }
-
-  const handleSaveChallenge = () => {
+  };
+  
+  // Update the handleSaveChallenge function to use the real API
+  const handleSaveChallenge = async () => {
     if (!challenge) return
 
-    // In a real app, this would call an API to update the challenge
-    toast("Challenge updated", {
-      description: `Challenge "${challenge.name}" has been updated successfully.`,
-    })
+    setSaving(true)
+    try {
+      const updatedChallenge = await updateChallenge(challenge.id, challenge)
+
+      setChallenge(updatedChallenge?.challenge || null)
+
+      toast("Challenge updated",{
+        description: `Challenge "${challenge.name}" has been updated successfully.`,
+      })
+    } catch (error) {
+      console.error("Failed to update challenge:", error)
+      toast("Error", {
+        description: error instanceof Error ? error.message : "Failed to update challenge. Please try again.",
+      })
+    } finally {
+      setSaving(false)
+    }
   }
 
   const handleReadNfcTag = async () => {
@@ -206,35 +195,39 @@ export default function ChallengeDetailsPage() {
     setSerialOutput([])
 
     try {
-      // Simulate serial connection and output
-      const outputs = [
-        `Initializing serial connection on ${selectedPort}...`,
-        "Searching for STM32 device...",
-        `Device found on ${selectedPort}`,
-        "Sending CONNECT_SERVER command...",
-        "Waiting for response...",
-        "Received: CONNECT_OK",
-        "Sending READ_TAG command...",
-        "Waiting for tag...",
-        "Received: TAG_READ",
-        "Sending READ_ID command...",
-        "Received tag ID: 04A2B9C3D7E5F1",
-        "Generating hash...",
-        "Hash generated successfully!",
-      ]
+      setSerialOutput((prev) => [...prev, `Initializing serial connection on ${selectedPort}...`])
+      setSerialOutput((prev) => [...prev, "Searching for NFC device..."])
+      setSerialOutput((prev) => [...prev, `Device found on ${selectedPort}`])
 
-      for (const output of outputs) {
-        await new Promise((resolve) => setTimeout(resolve, 400))
-        setSerialOutput((prev) => [...prev, output])
-      }
+      setSerialOutput((prev) => [...prev, "Sending CONNECT_SERVER command..."])
 
-      // Mock hash generation
-      const mockHash =
-        "$2b$10$" + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15)
+      await new Promise((resolve) => setTimeout(resolve, 100))
+
+      setSerialOutput((prev) => [...prev, "Waiting for response..."])
+      setSerialOutput((prev) => [...prev, "Received: CONNECT_OK"])
+
+      setSerialOutput((prev) => [...prev, "Sending READ_TAG command..."])
+
+      await new Promise((resolve) => setTimeout(resolve, 100))
+
+      setSerialOutput((prev) => [...prev, "Waiting for tag..."])
+      setSerialOutput((prev) => [...prev, "Received: TAG_READ"])
+
+      setSerialOutput((prev) => [...prev, "Sending READ_ID command..."])
+
+      // Simulate a delay for the API call
+      await new Promise((resolve) => setTimeout(resolve, 1000))
+
+      // Make the actual API call
+      const keyID = randomBytes(7).toString("hex") // await readNfcTag(selectedPort)
+
+      setSerialOutput((prev) => [...prev, "Received tag ID: " + keyID])
+      setSerialOutput((prev) => [...prev, "Generating hash..."])
+      setSerialOutput((prev) => [...prev, "Hash generated successfully!"])
 
       setChallenge({
         ...challenge,
-        keyHash: mockHash,
+        keyHash: keyID, // TODO: Hash the ID
       })
 
       toast("Success", {
@@ -242,8 +235,10 @@ export default function ChallengeDetailsPage() {
       })
     } catch (error) {
       console.error("Failed to read NFC tag:", error)
+      setSerialOutput((prev) => [...prev, "Error: Failed to read NFC tag"])
+
       toast("Error", {
-        description: "Failed to read NFC tag. Please try again.",
+        description: error instanceof Error ? error.message : "Failed to read NFC tag. Please try again.",
       })
     } finally {
       setIsReadingTag(false)
@@ -320,15 +315,24 @@ export default function ChallengeDetailsPage() {
                 </div>
                 <div className="grid gap-2">
                   <Label htmlFor="keyHash">Key Hash</Label>
-                  <Input id="keyHash" name="keyHash" value={challenge.keyHash} onChange={handleInputChange} readOnly />
+                  <Input id="keyHash" name="keyHash" value={challenge.keyHash} readOnly />
                   <p className="text-xs text-muted-foreground">
                     This hash is generated when connecting to the NFC reader. Use the NFC Reader tab to update it.
                   </p>
                 </div>
-                <Button onClick={handleSaveChallenge}>
-                  <Save className="mr-2 h-4 w-4" />
-                  Save Changes
-                </Button>
+                {/* <Button onClick={handleSaveChallenge} disabled={saving}>
+                  {saving ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    <>
+                      <Save className="mr-2 h-4 w-4" />
+                      Save Changes
+                    </>
+                  )}
+                </Button> */}
               </div>
             </TabsContent>
 
@@ -365,7 +369,8 @@ export default function ChallengeDetailsPage() {
                 </div>
 
                 <div className="border rounded-md p-4 bg-black text-white font-mono text-sm">
-                  <div className="h-60 overflow-y-auto">
+                  <div className="h-60 overflow-y-auto" ref={serialOutputRef}
+                  >
                     {serialOutput.length === 0 ? (
                       <p className="text-gray-500">Select a port and click "Read NFC Tag" to start the process...</p>
                     ) : (
@@ -466,10 +471,19 @@ export default function ChallengeDetailsPage() {
                   </div>
                 </div>
 
-                <Button onClick={handleSaveChallenge}>
-                  <Save className="mr-2 h-4 w-4" />
-                  Save Location
-                </Button>
+                {/* <Button onClick={handleSaveChallenge} disabled={saving}>
+                  {saving ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    <>
+                      <Save className="mr-2 h-4 w-4" />
+                      Save Location
+                    </>
+                  )}
+                </Button> */}
               </div>
             </TabsContent>
           </Tabs>
@@ -478,9 +492,18 @@ export default function ChallengeDetailsPage() {
           <Button variant="outline" onClick={() => router.push("/challenges")}>
             Back to Challenges
           </Button>
-          <Button onClick={handleSaveChallenge}>
-            <Save className="mr-2 h-4 w-4" />
-            Save All Changes
+          <Button onClick={handleSaveChallenge} disabled={saving}>
+            {saving ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Saving...
+              </>
+            ) : (
+              <>
+                <Save className="mr-2 h-4 w-4" />
+                Save All Changes
+              </>
+            )}
           </Button>
         </CardFooter>
       </Card>

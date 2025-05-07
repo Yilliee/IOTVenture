@@ -18,13 +18,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-
-interface TeamMember {
-  id: string
-  username: string
-  registeredAt: string
-  lastActive: string
-}
+import { getTeam, type TeamMember, forceSubmit } from "@/lib/api"
 
 interface TeamChallenge {
   id: string
@@ -50,10 +44,10 @@ export default function TeamDetailsPage() {
   const [maxMembers, setMaxMembers] = useState(8)
   const [members, setMembers] = useState<TeamMember[]>([])
   const [challenges, setChallenges] = useState<TeamChallenge[]>([])
-  const [devices, setDevices] = useState<DeviceSubmission[]>([])
   const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
-  const [selectedDevice, setSelectedDevice] = useState<DeviceSubmission | null>(null)
+  const [selectedMember, setSelectedMember] = useState<TeamMember | null>(null)
 
   useEffect(() => {
     // In a real app, this would be an API call
@@ -63,175 +57,207 @@ export default function TeamDetailsPage() {
   const fetchTeamData = async () => {
     setLoading(true)
     try {
-      // Mock data - would be replaced with a real fetch in production
-      await new Promise((resolve) => setTimeout(resolve, 1000))
+      const response = await getTeam(teamId)
 
-      // Different mock data based on team ID
-      if (teamId === "1") {
-        setTeamName("Tech Wizards")
-        setMaxMembers(8)
-        setMembers([
-          { id: "m1", username: "wizard1", registeredAt: "2023-05-10", lastActive: "2023-05-15" },
-          { id: "m2", username: "wizard2", registeredAt: "2023-05-10", lastActive: "2023-05-15" },
-          { id: "m3", username: "wizard3", registeredAt: "2023-05-11", lastActive: "2023-05-14" },
-          { id: "m4", username: "wizard4", registeredAt: "2023-05-12", lastActive: "2023-05-15" },
-          { id: "m5", username: "wizard5", registeredAt: "2023-05-13", lastActive: "2023-05-13" },
-        ])
-        setChallenges([
-          {
-            id: "ch1",
-            name: "Find the Beacon",
-            shortName: "Beacon",
-            solvedAt: "2023-05-15 14:30",
-            solvedBy: "wizard2",
-          },
-          {
-            id: "ch2",
-            name: "Decode the Signal",
-            shortName: "Signal",
-            solvedAt: "2023-05-15 16:45",
-            solvedBy: "wizard1",
-          },
-          { id: "ch3", name: "Capture the Flag", shortName: "CTF", solvedAt: "2023-05-15 18:20", solvedBy: "wizard4" },
-          { id: "ch4", name: "Hack the Device", shortName: "Hack", solvedAt: null, solvedBy: null },
-          { id: "ch5", name: "Solve the Puzzle", shortName: "Puzzle", solvedAt: null, solvedBy: null },
-        ])
-        setDevices([
-          { id: "d1", username: "wizard1", lastActive: "2023-05-15 15:30", hasSubmitted: true },
-          { id: "d2", username: "wizard2", lastActive: "2023-05-15 15:45", hasSubmitted: true },
-          { id: "d3", username: "wizard3", lastActive: "2023-05-15 14:20", hasSubmitted: false },
-          { id: "d4", username: "wizard4", lastActive: "2023-05-15 15:10", hasSubmitted: true },
-          { id: "d5", username: "wizard5", lastActive: "2023-05-15 13:55", hasSubmitted: false },
-        ])
-      } else if (teamId === "2") {
-        setTeamName("Binary Bandits")
-        setMaxMembers(8)
-        setMembers([
-          { id: "m6", username: "bandit1", registeredAt: "2023-05-11", lastActive: "2023-05-15" },
-          { id: "m7", username: "bandit2", registeredAt: "2023-05-11", lastActive: "2023-05-15" },
-          { id: "m8", username: "bandit3", registeredAt: "2023-05-11", lastActive: "2023-05-14" },
-          { id: "m9", username: "bandit4", registeredAt: "2023-05-12", lastActive: "2023-05-15" },
-          { id: "m10", username: "bandit5", registeredAt: "2023-05-12", lastActive: "2023-05-15" },
-          { id: "m11", username: "bandit6", registeredAt: "2023-05-13", lastActive: "2023-05-14" },
-          { id: "m12", username: "bandit7", registeredAt: "2023-05-14", lastActive: "2023-05-15" },
-        ])
-        setChallenges([
-          {
-            id: "ch1",
-            name: "Find the Beacon",
-            shortName: "Beacon",
-            solvedAt: "2023-05-15 15:10",
-            solvedBy: "bandit3",
-          },
-          {
-            id: "ch2",
-            name: "Decode the Signal",
-            shortName: "Signal",
-            solvedAt: "2023-05-15 17:25",
-            solvedBy: "bandit5",
-          },
-          { id: "ch3", name: "Capture the Flag", shortName: "CTF", solvedAt: null, solvedBy: null },
-          { id: "ch4", name: "Hack the Device", shortName: "Hack", solvedAt: "2023-05-15 19:40", solvedBy: "bandit1" },
-          { id: "ch5", name: "Solve the Puzzle", shortName: "Puzzle", solvedAt: null, solvedBy: null },
-        ])
-        setDevices([
-          { id: "d6", username: "bandit1", lastActive: "2023-05-15 15:30", hasSubmitted: true },
-          { id: "d7", username: "bandit2", lastActive: "2023-05-15 15:45", hasSubmitted: false },
-          { id: "d8", username: "bandit3", lastActive: "2023-05-15 14:20", hasSubmitted: true },
-          { id: "d9", username: "bandit4", lastActive: "2023-05-15 15:10", hasSubmitted: false },
-          { id: "d10", username: "bandit5", lastActive: "2023-05-15 13:55", hasSubmitted: true },
-          { id: "d11", username: "bandit6", lastActive: "2023-05-15 12:30", hasSubmitted: false },
-          { id: "d12", username: "bandit7", lastActive: "2023-05-15 14:15", hasSubmitted: true },
-        ])
+      if (response.status === 200 && response.team && response.members && response.solves) {
+        console.log(response)
+        setTeamName(response.team.name)
+        setMaxMembers(response.team.maxMembers)
+        setMembers(response.members)
+        setChallenges(response.solves)
       } else {
-        setTeamName("Circuit Breakers")
-        setMaxMembers(8)
-        setMembers([
-          { id: "m13", username: "breaker1", registeredAt: "2023-05-12", lastActive: "2023-05-15" },
-          { id: "m14", username: "breaker2", registeredAt: "2023-05-12", lastActive: "2023-05-15" },
-          { id: "m15", username: "breaker3", registeredAt: "2023-05-13", lastActive: "2023-05-14" },
-          { id: "m16", username: "breaker4", registeredAt: "2023-05-14", lastActive: "2023-05-15" },
-        ])
-        setChallenges([
-          {
-            id: "ch1",
-            name: "Find the Beacon",
-            shortName: "Beacon",
-            solvedAt: "2023-05-15 14:50",
-            solvedBy: "breaker2",
-          },
-          { id: "ch2", name: "Decode the Signal", shortName: "Signal", solvedAt: null, solvedBy: null },
-          { id: "ch3", name: "Capture the Flag", shortName: "CTF", solvedAt: "2023-05-15 18:05", solvedBy: "breaker1" },
-          { id: "ch4", name: "Hack the Device", shortName: "Hack", solvedAt: null, solvedBy: null },
-          {
-            id: "ch5",
-            name: "Solve the Puzzle",
-            shortName: "Puzzle",
-            solvedAt: "2023-05-15 20:15",
-            solvedBy: "breaker4",
-          },
-        ])
-        setDevices([
-          { id: "d13", username: "breaker1", lastActive: "2023-05-15 15:30", hasSubmitted: true },
-          { id: "d14", username: "breaker2", lastActive: "2023-05-15 15:45", hasSubmitted: true },
-          { id: "d15", username: "breaker3", lastActive: "2023-05-15 14:20", hasSubmitted: false },
-          { id: "d16", username: "breaker4", lastActive: "2023-05-15 15:10", hasSubmitted: true },
-        ])
+        toast("Error", {
+          description: response.error || "Failed to load team data",
+        })
       }
     } catch (error) {
       console.error("Failed to fetch team data:", error)
-      toast({
-        title: "Error",
-        description: "Failed to load team data. Please try again.",
-        variant: "destructive",
+      toast("Error", {
+        description: "An unexpected error occurred while loading team data",
       })
     } finally {
       setLoading(false)
     }
   }
 
+  // const fetchTeamData = async () => {
+  //   setLoading(true)
+  //   try {
+  //     // Mock data - would be replaced with a real fetch in production
+  //     await new Promise((resolve) => setTimeout(resolve, 1000))
+
+  //     // Different mock data based on team ID
+  //     if (teamId === "1") {
+  //       setTeamName("Tech Wizards")
+  //       setMaxMembers(8)
+  //       setMembers([
+  //         { id: "m1", username: "wizard1", registeredAt: "2023-05-10", lastActive: "2023-05-15" },
+  //         { id: "m2", username: "wizard2", registeredAt: "2023-05-10", lastActive: "2023-05-15" },
+  //         { id: "m3", username: "wizard3", registeredAt: "2023-05-11", lastActive: "2023-05-14" },
+  //         { id: "m4", username: "wizard4", registeredAt: "2023-05-12", lastActive: "2023-05-15" },
+  //         { id: "m5", username: "wizard5", registeredAt: "2023-05-13", lastActive: "2023-05-13" },
+  //       ])
+  //       setChallenges([
+  //         {
+  //           id: "ch1",
+  //           name: "Find the Beacon",
+  //           shortName: "Beacon",
+  //           solvedAt: "2023-05-15 14:30",
+  //           solvedBy: "wizard2",
+  //         },
+  //         {
+  //           id: "ch2",
+  //           name: "Decode the Signal",
+  //           shortName: "Signal",
+  //           solvedAt: "2023-05-15 16:45",
+  //           solvedBy: "wizard1",
+  //         },
+  //         { id: "ch3", name: "Capture the Flag", shortName: "CTF", solvedAt: "2023-05-15 18:20", solvedBy: "wizard4" },
+  //         { id: "ch4", name: "Hack the Device", shortName: "Hack", solvedAt: null, solvedBy: null },
+  //         { id: "ch5", name: "Solve the Puzzle", shortName: "Puzzle", solvedAt: null, solvedBy: null },
+  //       ])
+  //       setDevices([
+  //         { id: "d1", username: "wizard1", lastActive: "2023-05-15 15:30", hasSubmitted: true },
+  //         { id: "d2", username: "wizard2", lastActive: "2023-05-15 15:45", hasSubmitted: true },
+  //         { id: "d3", username: "wizard3", lastActive: "2023-05-15 14:20", hasSubmitted: false },
+  //         { id: "d4", username: "wizard4", lastActive: "2023-05-15 15:10", hasSubmitted: true },
+  //         { id: "d5", username: "wizard5", lastActive: "2023-05-15 13:55", hasSubmitted: false },
+  //       ])
+  //     } else if (teamId === "2") {
+  //       setTeamName("Binary Bandits")
+  //       setMaxMembers(8)
+  //       setMembers([
+  //         { id: "m6", username: "bandit1", registeredAt: "2023-05-11", lastActive: "2023-05-15" },
+  //         { id: "m7", username: "bandit2", registeredAt: "2023-05-11", lastActive: "2023-05-15" },
+  //         { id: "m8", username: "bandit3", registeredAt: "2023-05-11", lastActive: "2023-05-14" },
+  //         { id: "m9", username: "bandit4", registeredAt: "2023-05-12", lastActive: "2023-05-15" },
+  //         { id: "m10", username: "bandit5", registeredAt: "2023-05-12", lastActive: "2023-05-15" },
+  //         { id: "m11", username: "bandit6", registeredAt: "2023-05-13", lastActive: "2023-05-14" },
+  //         { id: "m12", username: "bandit7", registeredAt: "2023-05-14", lastActive: "2023-05-15" },
+  //       ])
+  //       setChallenges([
+  //         {
+  //           id: "ch1",
+  //           name: "Find the Beacon",
+  //           shortName: "Beacon",
+  //           solvedAt: "2023-05-15 15:10",
+  //           solvedBy: "bandit3",
+  //         },
+  //         {
+  //           id: "ch2",
+  //           name: "Decode the Signal",
+  //           shortName: "Signal",
+  //           solvedAt: "2023-05-15 17:25",
+  //           solvedBy: "bandit5",
+  //         },
+  //         { id: "ch3", name: "Capture the Flag", shortName: "CTF", solvedAt: null, solvedBy: null },
+  //         { id: "ch4", name: "Hack the Device", shortName: "Hack", solvedAt: "2023-05-15 19:40", solvedBy: "bandit1" },
+  //         { id: "ch5", name: "Solve the Puzzle", shortName: "Puzzle", solvedAt: null, solvedBy: null },
+  //       ])
+  //       setDevices([
+  //         { id: "d6", username: "bandit1", lastActive: "2023-05-15 15:30", hasSubmitted: true },
+  //         { id: "d7", username: "bandit2", lastActive: "2023-05-15 15:45", hasSubmitted: false },
+  //         { id: "d8", username: "bandit3", lastActive: "2023-05-15 14:20", hasSubmitted: true },
+  //         { id: "d9", username: "bandit4", lastActive: "2023-05-15 15:10", hasSubmitted: false },
+  //         { id: "d10", username: "bandit5", lastActive: "2023-05-15 13:55", hasSubmitted: true },
+  //         { id: "d11", username: "bandit6", lastActive: "2023-05-15 12:30", hasSubmitted: false },
+  //         { id: "d12", username: "bandit7", lastActive: "2023-05-15 14:15", hasSubmitted: true },
+  //       ])
+  //     } else {
+  //       setTeamName("Circuit Breakers")
+  //       setMaxMembers(8)
+  //       setMembers([
+  //         { id: "m13", username: "breaker1", registeredAt: "2023-05-12", lastActive: "2023-05-15" },
+  //         { id: "m14", username: "breaker2", registeredAt: "2023-05-12", lastActive: "2023-05-15" },
+  //         { id: "m15", username: "breaker3", registeredAt: "2023-05-13", lastActive: "2023-05-14" },
+  //         { id: "m16", username: "breaker4", registeredAt: "2023-05-14", lastActive: "2023-05-15" },
+  //       ])
+  //       setChallenges([
+  //         {
+  //           id: "ch1",
+  //           name: "Find the Beacon",
+  //           shortName: "Beacon",
+  //           solvedAt: "2023-05-15 14:50",
+  //           solvedBy: "breaker2",
+  //         },
+  //         { id: "ch2", name: "Decode the Signal", shortName: "Signal", solvedAt: null, solvedBy: null },
+  //         { id: "ch3", name: "Capture the Flag", shortName: "CTF", solvedAt: "2023-05-15 18:05", solvedBy: "breaker1" },
+  //         { id: "ch4", name: "Hack the Device", shortName: "Hack", solvedAt: null, solvedBy: null },
+  //         {
+  //           id: "ch5",
+  //           name: "Solve the Puzzle",
+  //           shortName: "Puzzle",
+  //           solvedAt: "2023-05-15 20:15",
+  //           solvedBy: "breaker4",
+  //         },
+  //       ])
+  //       setDevices([
+  //         { id: "d13", username: "breaker1", lastActive: "2023-05-15 15:30", hasSubmitted: true },
+  //         { id: "d14", username: "breaker2", lastActive: "2023-05-15 15:45", hasSubmitted: true },
+  //         { id: "d15", username: "breaker3", lastActive: "2023-05-15 14:20", hasSubmitted: false },
+  //         { id: "d16", username: "breaker4", lastActive: "2023-05-15 15:10", hasSubmitted: true },
+  //       ])
+  //     }
+  //   } catch (error) {
+  //     console.error("Failed to fetch team data:", error)
+  //     toast({
+  //       title: "Error",
+  //       description: "Failed to load team data. Please try again.",
+  //       variant: "destructive",
+  //     })
+  //   } finally {
+  //     setLoading(false)
+  //   }
+  // }
+
   const handleUpdateMaxMembers = () => {
     // In a real app, this would call an API to update the max members
-    toast({
-      title: "Settings updated",
+    toast("Settings updated", {
       description: `Maximum members for team "${teamName}" updated to ${maxMembers}.`,
     })
   }
 
   const handleRemoveMember = (memberId: string, username: string) => {
     setMembers(members.filter((member) => member.id !== memberId))
-    setDevices(devices.filter((device) => device.username !== username))
-    toast({
-      title: "Member removed",
+
+    toast("Member removed", {
       description: `User "${username}" has been removed from the team.`,
     })
+    // TODO: Send call to backend to remove this user too - keep submissions = no ?
   }
 
-  const handleForceSubmit = (device: DeviceSubmission) => {
-    setSelectedDevice(device)
+  const handleForceSubmit = (member: TeamMember) => {
+    setSelectedMember(member)
     setIsDialogOpen(true)
   }
 
-  const confirmForceSubmit = () => {
-    if (!selectedDevice) return
+  const confirmForceSubmit = async () => {
+    if (!selectedMember) return
 
-    // Update the device's submission status
-    setDevices(
-      devices.map((device) =>
-        device.id === selectedDevice.id
+    const result = await forceSubmit(selectedMember.id)
+
+    if ( result.status !== 200) {
+      toast("Error", {
+        description: result.error || "Failed to force submission",
+      })
+      return
+    }    
+
+    setMembers(
+      members.map((member) =>
+        member.id === selectedMember.id
           ? {
-              ...device,
+              ...member,
               hasSubmitted: true,
             }
-          : device,
+          : member,
       ),
     )
 
     setIsDialogOpen(false)
 
-    toast({
-      title: "Submission forced",
-      description: `Final submission for device "${selectedDevice.username}" has been forced.`,
+    toast("Submission forced", {
+      description: `Final submission for device "${selectedMember.username}" has been forced.`,
     })
   }
 
@@ -343,12 +369,12 @@ export default function TeamDetailsPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {devices.map((device) => (
-                      <TableRow key={device.id}>
-                        <TableCell className="font-medium">{device.username}</TableCell>
-                        <TableCell>{device.lastActive}</TableCell>
+                    {members.map((member) => (
+                      <TableRow key={member.id}>
+                        <TableCell className="font-medium">{member.username}</TableCell>
+                        <TableCell>{member.lastActive}</TableCell>
                         <TableCell>
-                          {device.hasSubmitted ? (
+                          {member.hasSubmitted ? (
                             <div className="flex items-center gap-1">
                               <CheckCircle className="h-4 w-4 text-green-500" />
                               <span>Submitted</span>
@@ -364,8 +390,8 @@ export default function TeamDetailsPage() {
                           <Button
                             variant="outline"
                             size="sm"
-                            onClick={() => handleForceSubmit(device)}
-                            disabled={device.hasSubmitted}
+                            onClick={() => handleForceSubmit(member)}
+                            disabled={member.hasSubmitted}
                           >
                             Force Submit
                           </Button>
@@ -376,7 +402,7 @@ export default function TeamDetailsPage() {
                 </Table>
               </div>
               <div className="mt-4 text-sm text-muted-foreground">
-                {devices.filter((d) => d.hasSubmitted).length} of {devices.length} devices have submitted
+                {members.filter((d) => d.hasSubmitted).length} of {members.length} devices have submitted
               </div>
             </TabsContent>
 
@@ -419,16 +445,16 @@ export default function TeamDetailsPage() {
           <DialogHeader>
             <DialogTitle>Force Final Submission</DialogTitle>
             <DialogDescription>
-              Are you sure you want to force final submission for device "{selectedDevice?.username}"? This will use the
+              Are you sure you want to force final submission for device "{selectedMember?.username}"? This will use the
               last data received from this device.
             </DialogDescription>
           </DialogHeader>
           <div className="py-4">
             <p className="text-sm text-muted-foreground">
-              Device: <span className="font-medium text-foreground">{selectedDevice?.username}</span>
+              Device: <span className="font-medium text-foreground">{selectedMember?.username}</span>
             </p>
             <p className="text-sm text-muted-foreground">
-              Last active: <span className="font-medium text-foreground">{selectedDevice?.lastActive}</span>
+              Last active: <span className="font-medium text-foreground">{selectedMember?.lastActive}</span>
             </p>
             <p className="text-sm text-muted-foreground mt-4">
               <AlertTriangle className="h-4 w-4 text-yellow-500 inline mr-1" />

@@ -22,14 +22,15 @@ export default function AdminLoginPage() {
     setIsLoading(true)
 
     try {
-      // In a real app, this would be an API call to the admin login endpoint
-      const response = await fetch("/api/admin/login", {
+      const url = process.env.REACT_APP_BACKEND_URL || "http://localhost:8080"
+      console.log("Backend url:", url)
+      const response = await fetch(url + "/api/admin/login", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({ username, password }),
-        credentials: "include", // Important for http-only cookies
+        credentials: "include",
       })
 
       if (!response.ok) {

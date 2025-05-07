@@ -40,7 +40,7 @@ export default function Home() {
               <CardDescription>Create and manage challenges</CardDescription>
             </CardHeader>
             <CardContent>
-              <p>Set up new challenges with locations and STM32 integration.</p>
+              <p>Set up new challenges with locations and scan NFC tags.</p>
             </CardContent>
           </Card>
         </Link>
