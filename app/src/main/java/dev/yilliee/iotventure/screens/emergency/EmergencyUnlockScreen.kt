@@ -11,10 +11,12 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.yilliee.iotventure.di.ServiceLocator
 import dev.yilliee.iotventure.ui.theme.*
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -30,6 +32,10 @@ fun EmergencyUnlockScreen(
     var showDialog by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
+    // Get auth repository for logout
+    val context = LocalContext.current
+    val authRepository = remember { ServiceLocator.provideAuthRepository(context) }
+    var isLoggingOut by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -178,8 +184,17 @@ fun EmergencyUnlockScreen(
         }
         if (showDialog) {
             ShowUnlockDialog(
-                onExitGame = onExitGame,
-                onReturnToGame = onReturnToGame
+                onExitGame = {
+                    // Perform logout before exiting
+                    scope.launch {
+                        isLoggingOut = true
+                        authRepository.logout()
+                        isLoggingOut = false
+                        onExitGame()
+                    }
+                },
+                onReturnToGame = onReturnToGame,
+                isLoggingOut = isLoggingOut
             )
         }
     }
@@ -226,7 +241,8 @@ fun EmergencyTopBar(
 @Composable
 private fun ShowUnlockDialog(
     onExitGame: () -> Unit,
-    onReturnToGame: () -> Unit
+    onReturnToGame: () -> Unit,
+    isLoggingOut: Boolean
 ) {
     var showDialog by remember { mutableStateOf(true) }
 
@@ -237,16 +253,28 @@ private fun ShowUnlockDialog(
                 Text("Game Unlocked")
             },
             text = {
-                Text("Emergency unlock activated. Your game progress has been saved. You can now exit the app.")
+                Column {
+                    Text("Emergency unlock activated. Your game progress has been saved. You can now exit the app.")
+
+                    if (isLoggingOut) {
+                        Spacer(modifier = Modifier.height(16.dp))
+                        LinearProgressIndicator(
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text("Logging out...", color = TextGray)
+                    }
+                }
             },
             confirmButton = {
                 TextButton(
                     onClick = {
                         showDialog = false
                         onExitGame()
-                    }
+                    },
+                    enabled = !isLoggingOut
                 ) {
-                    Text("Exit Game", color = ErrorRed)
+                    Text("Exit Game", color = if (isLoggingOut) TextGray else ErrorRed)
                 }
             },
             dismissButton = {
@@ -254,9 +282,10 @@ private fun ShowUnlockDialog(
                     onClick = {
                         showDialog = false
                         onReturnToGame()
-                    }
+                    },
+                    enabled = !isLoggingOut
                 ) {
-                    Text("Return to Game")
+                    Text("Return to Game", color = if (isLoggingOut) TextGray else TextWhite)
                 }
             },
             containerColor = DarkSurface,
@@ -265,4 +294,3 @@ private fun ShowUnlockDialog(
         )
     }
 }
-

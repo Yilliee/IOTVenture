@@ -37,6 +37,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true  // Add this line to enable BuildConfig generation
     }
 }
 

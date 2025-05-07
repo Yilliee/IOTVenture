@@ -15,34 +15,48 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import dev.yilliee.iotventure.data.model.TeamMessage
+import dev.yilliee.iotventure.di.ServiceLocator
 import dev.yilliee.iotventure.ui.theme.*
 import kotlinx.coroutines.launch
-import java.text.SimpleDateFormat
-import java.util.*
 
 @Composable
 fun TeamChatScreen(
     onBackClick: () -> Unit
 ) {
-    var messages by remember { mutableStateOf(emptyList<MessageData>()) }
+    val context = LocalContext.current
+    val chatRepository = remember { ServiceLocator.provideChatRepository(context) }
+    val viewModel = remember { TeamChatViewModel.Factory(chatRepository).create(TeamChatViewModel::class.java) }
+
     var messageText by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
 
-    // Load mock messages on first composition
-    LaunchedEffect(key1 = Unit) {
-        messages = getMockMessages()
-        // Scroll to bottom after messages load
-        scope.launch {
+    val chatState by viewModel.chatState.collectAsState()
+
+    // Extract messages from state
+    val messages = when (chatState) {
+        is TeamChatViewModel.ChatState.Success -> (chatState as TeamChatViewModel.ChatState.Success).messages
+        is TeamChatViewModel.ChatState.NetworkError -> (chatState as TeamChatViewModel.ChatState.NetworkError).cachedMessages
+        else -> emptyList()
+    }
+
+    // Scroll to bottom when messages change
+    LaunchedEffect(messages.size) {
+        if (messages.isNotEmpty()) {
             listState.animateScrollToItem(messages.size - 1)
         }
     }
 
     Scaffold(
         topBar = {
-            ChatTopBar(onBackClick = onBackClick)
+            ChatTopBar(
+                onBackClick = onBackClick,
+                isOnline = chatState !is TeamChatViewModel.ChatState.NetworkError
+            )
         },
         bottomBar = {
             ChatInputBar(
@@ -50,36 +64,37 @@ fun TeamChatScreen(
                 onMessageChange = { messageText = it },
                 onSendClick = {
                     if (messageText.isNotBlank()) {
-                        val newMessage = MessageData(
-                            id = messages.size + 1,
-                            sender = "You",
-                            text = messageText,
-                            timestamp = SimpleDateFormat("hh:mm a", Locale.getDefault()).format(Date()),
-                            status = MessageStatus.SENT,
-                            isMine = true
-                        )
-                        messages = messages + newMessage
+                        viewModel.sendMessage(messageText)
                         messageText = ""
-
-                        // Scroll to bottom after sending
-                        scope.launch {
-                            listState.animateScrollToItem(messages.size - 1)
-                        }
                     }
                 }
             )
-        }
+        },
+        modifier = Modifier.imePadding() // Add this to handle keyboard
     ) { paddingValues ->
-        LazyColumn(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-            state = listState,
-            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            items(messages) { message ->
-                MessageItem(message = message)
+            if (chatState is TeamChatViewModel.ChatState.Loading && messages.isEmpty()) {
+                // Show loading indicator only if we have no messages
+                CircularProgressIndicator(
+                    modifier = Modifier.align(Alignment.Center),
+                    color = Gold
+                )
+            } else {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    state = listState,
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    items(messages) { message ->
+                        MessageItem(message = message)
+                    }
+                }
             }
         }
     }
@@ -87,7 +102,8 @@ fun TeamChatScreen(
 
 @Composable
 fun ChatTopBar(
-    onBackClick: () -> Unit
+    onBackClick: () -> Unit,
+    isOnline: Boolean
 ) {
     Surface(
         color = DarkSurface,
@@ -119,18 +135,31 @@ fun ChatTopBar(
                     color = TextWhite
                 )
 
-                Text(
-                    text = "4 members online",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = SuccessGreen
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = if (isOnline) Icons.Default.Wifi else Icons.Default.WifiOff,
+                        contentDescription = if (isOnline) "Online" else "Offline",
+                        tint = if (isOnline) SuccessGreen else ErrorRed,
+                        modifier = Modifier.size(16.dp)
+                    )
+
+                    Spacer(modifier = Modifier.width(4.dp))
+
+                    Text(
+                        text = if (isOnline) "Online" else "Offline",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (isOnline) SuccessGreen else ErrorRed
+                    )
+                }
             }
         }
     }
 }
 
 @Composable
-fun MessageItem(message: MessageData) {
+fun MessageItem(message: TeamMessage) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -186,19 +215,19 @@ fun MessageItem(message: MessageData) {
                 Spacer(modifier = Modifier.width(4.dp))
 
                 when (message.status) {
-                    MessageStatus.SENT -> Icon(
+                    dev.yilliee.iotventure.data.model.MessageStatus.SENT -> Icon(
                         imageVector = Icons.Default.Check,
                         contentDescription = "Sent",
                         tint = TextGray,
                         modifier = Modifier.size(14.dp)
                     )
-                    MessageStatus.DELIVERED -> Icon(
+                    dev.yilliee.iotventure.data.model.MessageStatus.DELIVERED -> Icon(
                         imageVector = Icons.Default.Check,
                         contentDescription = "Delivered",
                         tint = SuccessGreen,
                         modifier = Modifier.size(14.dp)
                     )
-                    MessageStatus.READ -> Icon(
+                    dev.yilliee.iotventure.data.model.MessageStatus.READ -> Icon(
                         imageVector = Icons.Default.Done,
                         contentDescription = "Read",
                         tint = SuccessGreen,
@@ -226,18 +255,6 @@ fun ChatInputBar(
                 .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Attachment button
-            IconButton(
-                onClick = { /* Handle attachment */ },
-                modifier = Modifier.size(40.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.AccountBox,
-                    contentDescription = "Attach Image",
-                    tint = TextGray
-                )
-            }
-
             // Message input
             TextField(
                 value = messageText,
@@ -257,18 +274,6 @@ fun ChatInputBar(
                 shape = RoundedCornerShape(20.dp),
                 maxLines = 3
             )
-
-            // Emoji button
-            IconButton(
-                onClick = { /* Handle emoji */ },
-                modifier = Modifier.size(40.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Face,
-                    contentDescription = "Emoji",
-                    tint = TextGray
-                )
-            }
 
             // Send button
             IconButton(
@@ -290,70 +295,3 @@ fun ChatInputBar(
         }
     }
 }
-
-private fun getMockMessages(): List<MessageData> {
-    return listOf(
-        MessageData(
-            id = 1,
-            sender = "Alex",
-            text = "Hey team, I think I found a clue near the library!",
-            timestamp = "10:15 AM",
-            status = MessageStatus.READ,
-            isMine = false
-        ),
-        MessageData(
-            id = 2,
-            sender = "You",
-            text = "Great! What does it look like?",
-            timestamp = "10:16 AM",
-            status = MessageStatus.READ,
-            isMine = true
-        ),
-        MessageData(
-            id = 3,
-            sender = "Alex",
-            text = "It's a small QR code hidden behind a book about pirates.",
-            timestamp = "10:18 AM",
-            status = MessageStatus.READ,
-            isMine = false
-        ),
-        MessageData(
-            id = 4,
-            sender = "Sarah",
-            text = "I'm heading to the science building now. Anyone want to join?",
-            timestamp = "10:20 AM",
-            status = MessageStatus.READ,
-            isMine = false
-        ),
-        MessageData(
-            id = 5,
-            sender = "You",
-            text = "I'll meet you there in 5 minutes.",
-            timestamp = "10:21 AM",
-            status = MessageStatus.READ,
-            isMine = true
-        ),
-        MessageData(
-            id = 6,
-            sender = "Mike",
-            text = "I found another clue at the fountain!",
-            timestamp = "10:25 AM",
-            status = MessageStatus.DELIVERED,
-            isMine = false
-        )
-    )
-}
-
-data class MessageData(
-    val id: Int,
-    val sender: String,
-    val text: String,
-    val timestamp: String,
-    val status: MessageStatus,
-    val isMine: Boolean
-)
-
-enum class MessageStatus {
-    SENT, DELIVERED, READ
-}
-

@@ -3,6 +3,7 @@ package dev.yilliee.iotventure
 import android.content.Intent
 import android.nfc.NfcAdapter
 import android.os.Bundle
+import android.util.Log
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -13,12 +14,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.core.view.WindowCompat
+import dev.yilliee.iotventure.di.ServiceLocator
 import dev.yilliee.iotventure.navigation.AppNavigation
 import dev.yilliee.iotventure.ui.theme.IOTVentureTheme
 
 class MainActivity : ComponentActivity() {
     // Create a companion object to hold the NFC intent state that can be observed by the ScanNfcScreen
     companion object {
+        private const val TAG = "MainActivity"
         val nfcIntent = mutableStateOf<Intent?>(null)
     }
 
@@ -32,9 +35,23 @@ class MainActivity : ComponentActivity() {
             WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
         )
 
+        // Set window soft input mode to adjust resize
+        window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+
         // Check if the app was launched from an NFC intent
         if (isNfcIntent(intent)) {
             nfcIntent.value = intent
+        }
+
+        // Initialize repositories
+        val authRepository = ServiceLocator.provideAuthRepository(this)
+        val isLoggedIn = authRepository.isLoggedIn()
+
+        Log.d(TAG, "User is logged in: $isLoggedIn")
+
+        if (isLoggedIn) {
+            val username = authRepository.getUsername()
+            Log.d(TAG, "Logged in user: $username")
         }
 
         setContent {
@@ -43,7 +60,13 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    AppNavigation()
+                    AppNavigation(
+                        startDestination = if (isLoggedIn) {
+                            dev.yilliee.iotventure.navigation.AppDestinations.DASHBOARD_ROUTE
+                        } else {
+                            dev.yilliee.iotventure.navigation.AppDestinations.LOGIN_ROUTE
+                        }
+                    )
                 }
             }
         }

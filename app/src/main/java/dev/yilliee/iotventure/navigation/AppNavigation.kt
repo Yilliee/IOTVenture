@@ -5,6 +5,8 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
+import androidx.navigation.NavType
 import dev.yilliee.iotventure.screens.chat.TeamChatScreen
 import dev.yilliee.iotventure.screens.dashboard.GameDashboardScreen
 import dev.yilliee.iotventure.screens.emergency.EmergencyUnlockScreen
@@ -23,7 +25,7 @@ object AppDestinations {
     const val SCAN_NFC_ROUTE = "scan_nfc"
     const val EMERGENCY_UNLOCK_ROUTE = "emergency_unlock"
     const val DEVICE_TRANSFER_ROUTE = "device_transfer"
-    const val CLUE_MAP_ROUTE = "clue_map"
+    const val CLUE_MAP_ROUTE = "clue_map/{challengeId}"
     const val TEAM_DETAILS_ROUTE = "team_details"
 }
 
@@ -98,9 +100,22 @@ fun AppNavigation(
             )
         }
 
-        composable(AppDestinations.CLUE_MAP_ROUTE) {
+        composable(
+            route = AppDestinations.CLUE_MAP_ROUTE,
+            arguments = listOf(
+                navArgument("challengeId") {
+                    type = NavType.IntType
+                    defaultValue = -1
+                }
+            )
+        ) { backStackEntry ->
+            val challengeId = backStackEntry.arguments?.getInt("challengeId") ?: -1
             ClueMapScreen(
-                onBackClick = { navController.popBackStack() }
+                onBackClick = { navController.popBackStack() },
+                onScanClick = { challenge ->
+                    navController.navigate(AppDestinations.SCAN_NFC_ROUTE)
+                },
+                initialChallengeId = challengeId
             )
         }
 

@@ -19,41 +19,67 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import dev.yilliee.iotventure.di.ServiceLocator
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import dev.yilliee.iotventure.ui.theme.DarkSurface
 import dev.yilliee.iotventure.ui.theme.Gold
 import dev.yilliee.iotventure.ui.theme.TextGray
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import android.util.Log
 
 @Composable
 fun LoginScreen(
     onLoginSuccess: () -> Unit
 ) {
+    val context = LocalContext.current
+    val preferencesManager = remember { ServiceLocator.providePreferencesManager(context) }
+    val apiService = remember { ServiceLocator.provideApiService(context) }
+    val authRepository = remember { ServiceLocator.provideAuthRepository(context) }
+    val viewModel = remember { LoginViewModel.Factory(authRepository).create(LoginViewModel::class.java) }
+
     var username by rememberSaveable { mutableStateOf("") }
     var password by rememberSaveable { mutableStateOf("") }
-    var isLoading by rememberSaveable { mutableStateOf(false) }
-    var errorMessage by rememberSaveable { mutableStateOf("") }
     var showServerSettings by rememberSaveable { mutableStateOf(false) }
-    val scope = rememberCoroutineScope()
     val configuration = LocalConfiguration.current
     val isPortrait = configuration.orientation == Configuration.ORIENTATION_PORTRAIT
     val scrollState = rememberScrollState()
+
+    val loginState by viewModel.loginState.collectAsState()
+    val scope = rememberCoroutineScope()
+
+    // Log current server settings
+    LaunchedEffect(Unit) {
+        Log.d("LoginScreen", "Current server settings: ${preferencesManager.getServerIp()}:${preferencesManager.getServerPort()}")
+    }
+
+    // Handle login state changes
+    LaunchedEffect(loginState) {
+        when (loginState) {
+            is LoginViewModel.LoginState.Success -> {
+                onLoginSuccess()
+                viewModel.resetState()
+            }
+            else -> { /* No action needed */ }
+        }
+    }
 
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
-            .padding(20.dp)
+            .imePadding() // Add this to handle keyboard
     ) {
-        // Settings button
-
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .padding(20.dp)
                 .verticalScroll(scrollState),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
@@ -95,23 +121,29 @@ fun LoginScreen(
                 onUsernameChange = { username = it },
                 password = password,
                 onPasswordChange = { password = it },
-                isLoading = isLoading,
-                errorMessage = errorMessage,
+                isLoading = loginState is LoginViewModel.LoginState.Loading,
+                errorMessage = if (loginState is LoginViewModel.LoginState.Error) {
+                    (loginState as LoginViewModel.LoginState.Error).message
+                } else {
+                    ""
+                },
                 onSubmit = {
-                    if (username.isBlank() || password.isBlank()) {
-                        errorMessage = "Please enter both username and password"
-                        return@LoginContent
-                    }
-                    errorMessage = ""
-                    isLoading = true
                     scope.launch {
-                        delay(1500)
-                        isLoading = false
-                        onLoginSuccess()
+                        viewModel.login(username, password)
                     }
                 }
             )
+
+            // Display current server settings
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(
+                text = "Server: ${preferencesManager.getServerIp()}:${preferencesManager.getServerPort()}",
+                style = MaterialTheme.typography.bodySmall,
+                color = TextGray,
+                textAlign = TextAlign.Center
+            )
         }
+
         Button(
             onClick = { showServerSettings = true },
             colors = ButtonDefaults.buttonColors(
@@ -120,6 +152,7 @@ fun LoginScreen(
             ),
             modifier = Modifier
                 .align(Alignment.TopEnd)
+                .padding(16.dp)
                 .size(48.dp),
             contentPadding = PaddingValues(0.dp)
         ) {
@@ -148,6 +181,17 @@ private fun LoginContent(
     errorMessage: String,
     onSubmit: () -> Unit
 ) {
+    // Add a note about teamId
+    Text(
+        text = "Using default Team ID: 1 (Tech Wizards)",
+        style = MaterialTheme.typography.bodyMedium,
+        color = Gold,
+        textAlign = TextAlign.Center,
+        modifier = Modifier.fillMaxWidth()
+    )
+
+    Spacer(Modifier.height(16.dp))
+
     OutlinedTextField(
         value = username,
         onValueChange = onUsernameChange,
@@ -231,8 +275,12 @@ private fun LoginContent(
 
 @Composable
 fun ServerSettingsDialog(onDismiss: () -> Unit) {
-    var serverIp by rememberSaveable { mutableStateOf("192.168.1.100") }
-    var serverPort by rememberSaveable { mutableStateOf("3000") }
+    val context = LocalContext.current
+    val preferencesManager = remember { ServiceLocator.providePreferencesManager(context) }
+    val apiService = remember { ServiceLocator.provideApiService(context) }
+
+    var serverIp by rememberSaveable { mutableStateOf(preferencesManager.getServerIp()) }
+    var serverPort by rememberSaveable { mutableStateOf(preferencesManager.getServerPort()) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -275,7 +323,14 @@ fun ServerSettingsDialog(onDismiss: () -> Unit) {
         },
         confirmButton = {
             Button(
-                onClick = onDismiss,
+                onClick = {
+                    // Save settings
+                    preferencesManager.saveServerSettings(serverIp, serverPort)
+                    // Update API service with new settings
+                    apiService.updateServerSettings(serverIp, serverPort)
+                    Log.d("ServerSettings", "Saved server settings: $serverIp:$serverPort")
+                    onDismiss()
+                },
                 colors = ButtonDefaults.buttonColors(
                     containerColor = Gold,
                     contentColor = MaterialTheme.colorScheme.background

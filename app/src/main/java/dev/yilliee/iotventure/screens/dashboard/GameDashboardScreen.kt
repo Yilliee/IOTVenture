@@ -15,40 +15,73 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import dev.yilliee.iotventure.di.ServiceLocator
 import dev.yilliee.iotventure.navigation.AppDestinations
 import dev.yilliee.iotventure.ui.theme.*
+import dev.yilliee.iotventure.data.model.Challenge
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.util.concurrent.TimeUnit
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
 
 @Composable
 fun GameDashboardScreen(
     onNavigateToScreen: (String) -> Unit,
     onEmergencyClick: () -> Unit
 ) {
-    var gameTime by remember { mutableStateOf(0L) }
-    val currentClue = remember {
-        mutableStateOf(
-            ClueData(
-                id = 1,
-                title = "The Ancient Map",
-                description = "Find the hidden map in the oldest building on campus.",
-                hint = "Look for a building with a clock tower.",
-                isCompleted = false
-            )
-        )
+    val context = LocalContext.current
+    val gameRepository = remember { ServiceLocator.provideGameRepository(context) }
+    val authRepository = remember { ServiceLocator.provideAuthRepository(context) }
+    val preferencesManager = remember { ServiceLocator.providePreferencesManager(context) }
+    val scope = rememberCoroutineScope()
+
+    // Check authentication state when app resumes
+    LaunchedEffect(Unit) {
+        try {
+            val isAuthenticated = authRepository.isLoggedIn()
+            if (!isAuthenticated) {
+                // Navigate to login screen if not authenticated
+                onNavigateToScreen(AppDestinations.LOGIN_ROUTE)
+            }
+        } catch (e: Exception) {
+            // If there's any error checking auth state, log out to be safe
+            authRepository.logout()
+            onNavigateToScreen(AppDestinations.LOGIN_ROUTE)
+        }
     }
 
-    var selectedTab by remember { mutableStateOf(0) }
+    val challenges by gameRepository.getChallenges().collectAsState(initial = emptyList())
+    val solvedChallengeIds = remember { mutableStateOf(setOf<Int>()) }
+
+    // Update solved challenges whenever the screen recomposes
+    LaunchedEffect(challenges) {
+        solvedChallengeIds.value = preferencesManager.getSolvedChallenges()
+    }
+
+    val completedChallenges = solvedChallengeIds.value.size
+    val totalChallenges = challenges.size
+
+    // Get game start time from preferences
+    val gameStartTime = remember { mutableStateOf(preferencesManager.getGameStartTime()) }
+    var gameTime by remember { mutableStateOf(0L) }
 
     // Timer effect
     LaunchedEffect(key1 = Unit) {
+        // If no game start time is set, set it now
+        if (gameStartTime.value == 0L) {
+            preferencesManager.setGameStartTime(System.currentTimeMillis())
+            gameStartTime.value = preferencesManager.getGameStartTime()
+        }
+
         while (true) {
             delay(1000)
-            gameTime += 1
+            // Calculate elapsed time since game start
+            gameTime = (System.currentTimeMillis() - gameStartTime.value) / 1000
         }
     }
 
@@ -56,14 +89,20 @@ fun GameDashboardScreen(
         topBar = {
             GameTopBar(
                 gameTime = gameTime,
-                onEmergencyClick = onEmergencyClick
+                onEmergencyClick = onEmergencyClick,
+                onLogoutClick = {
+                    scope.launch {
+                        authRepository.logout()
+                        // Navigate to login screen
+                        onNavigateToScreen(AppDestinations.LOGIN_ROUTE)
+                    }
+                }
             )
         },
         bottomBar = {
             BottomNavBar(
-                selectedTab = selectedTab,
+                selectedTab = 0,
                 onTabSelected = { index, route ->
-                    selectedTab = index
                     if (route.isNotEmpty()) {
                         onNavigateToScreen(route)
                     }
@@ -78,36 +117,41 @@ fun GameDashboardScreen(
                 .padding(16.dp)
                 .verticalScroll(rememberScrollState())
         ) {
-            // Current Clue Card
-            ClueCard(
-                clue = currentClue.value,
-                onScanClick = { onNavigateToScreen(AppDestinations.SCAN_NFC_ROUTE) }
+            // Progress Card
+            ProgressCard(
+                completedClues = completedChallenges,
+                totalClues = totalChallenges
             )
 
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(24.dp))
 
-            // Progress Section
-            ProgressSection(
-                completedClues = 7,
-                totalClues = 20
+            // Challenges List
+            Text(
+                text = "Available Challenges",
+                style = MaterialTheme.typography.titleLarge,
+                color = Gold,
+                modifier = Modifier.padding(bottom = 12.dp)
             )
 
-            Spacer(modifier = Modifier.height(20.dp))
+            challenges.forEach { challenge ->
+                ChallengeCard(
+                    challenge = challenge,
+                    isCompleted = solvedChallengeIds.value.contains(challenge.id),
+                    onClick = {
+                        // Navigate to map screen with the selected challenge ID
+                        val route = "clue_map/${challenge.id}"
+                        onNavigateToScreen(route)
+                    }
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
 
             // Leaderboard Button
             LeaderboardButton(
                 onClick = { onNavigateToScreen(AppDestinations.LEADERBOARD_ROUTE) }
             )
-
-            Spacer(modifier = Modifier.height(20.dp))
-
-            // Device Transfer Button
-            DeviceTransferButton(
-                onClick = { onNavigateToScreen(AppDestinations.DEVICE_TRANSFER_ROUTE) }
-            )
-
-            // Extra space at bottom to account for bottom navigation
-            Spacer(modifier = Modifier.height(60.dp))
         }
     }
 }
@@ -115,7 +159,8 @@ fun GameDashboardScreen(
 @Composable
 fun GameTopBar(
     gameTime: Long,
-    onEmergencyClick: () -> Unit
+    onEmergencyClick: () -> Unit,
+    onLogoutClick: () -> Unit
 ) {
     val formattedTime = remember(gameTime) {
         val hours = TimeUnit.SECONDS.toHours(gameTime)
@@ -164,13 +209,24 @@ fun GameTopBar(
                 color = TextWhite
             )
 
-            // Emergency Button
-            IconButton(onClick = onEmergencyClick) {
-                Icon(
-                    imageVector = Icons.Default.Warning,
-                    contentDescription = "Emergency Unlock",
-                    tint = ErrorRed
-                )
+            Row {
+                // Logout Button
+                IconButton(onClick = onLogoutClick) {
+                    Icon(
+                        imageVector = Icons.Default.Logout,
+                        contentDescription = "Logout",
+                        tint = TextGray
+                    )
+                }
+
+                // Emergency Button
+                IconButton(onClick = onEmergencyClick) {
+                    Icon(
+                        imageVector = Icons.Default.Warning,
+                        contentDescription = "Emergency Unlock",
+                        tint = ErrorRed
+                    )
+                }
             }
         }
     }
@@ -183,11 +239,11 @@ fun BottomNavBar(
 ) {
     val items = listOf(
         BottomNavItem("", Icons.Default.Home, ""), // Removed "Dashboard" text
-        BottomNavItem("Map", Icons.Default.Place, AppDestinations.CLUE_MAP_ROUTE),
+        BottomNavItem("Map", Icons.Default.Place, "clue_map/-1"), // Changed to use -1 for default map view
         BottomNavItem("Scan", Icons.Default.QrCodeScanner, AppDestinations.SCAN_NFC_ROUTE),
         BottomNavItem("Chat", Icons.Default.Chat, AppDestinations.TEAM_CHAT_ROUTE),
         BottomNavItem("Team", Icons.Default.Group, AppDestinations.TEAM_DETAILS_ROUTE),
-        BottomNavItem("Ranking", Icons.Default.EmojiEvents, AppDestinations.LEADERBOARD_ROUTE) // Changed from "Leaderboard" to "Ranking"
+        BottomNavItem("Ranking", Icons.Default.EmojiEvents, AppDestinations.LEADERBOARD_ROUTE)
     )
 
     NavigationBar(
@@ -326,11 +382,12 @@ fun ClueCard(
 }
 
 @Composable
-fun ProgressSection(
+fun ProgressCard(
     completedClues: Int,
     totalClues: Int
 ) {
-    val progress = completedClues.toFloat() / totalClues.toFloat()
+    val progress = if (totalClues > 0) completedClues.toFloat() / totalClues.toFloat() else 0f
+    val percentage = (progress * 100).toInt()
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -342,11 +399,23 @@ fun ProgressSection(
         Column(
             modifier = Modifier.padding(20.dp)
         ) {
-            Text(
-                text = "Your Progress",
-                style = MaterialTheme.typography.titleMedium,
-                color = TextWhite
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Your Progress",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = TextWhite
+                )
+                Text(
+                    text = "$percentage%",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = Gold,
+                    fontWeight = FontWeight.Bold
+                )
+            }
 
             Spacer(modifier = Modifier.height(12.dp))
 
@@ -363,7 +432,7 @@ fun ProgressSection(
             Spacer(modifier = Modifier.height(8.dp))
 
             Text(
-                text = "$completedClues of $totalClues clues solved",
+                text = "$completedClues of $totalClues challenges completed",
                 style = MaterialTheme.typography.bodyMedium,
                 color = TextGray
             )
@@ -428,5 +497,73 @@ fun DeviceTransferButton(
             style = MaterialTheme.typography.bodyLarge,
             fontWeight = FontWeight.Medium
         )
+    }
+}
+
+@Composable
+fun ChallengeCard(
+    challenge: Challenge,
+    isCompleted: Boolean,
+    onClick: () -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+        colors = CardDefaults.cardColors(
+            containerColor = DarkSurface
+        ),
+        shape = MaterialTheme.shapes.large
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = challenge.name,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = TextWhite
+                )
+                if (isCompleted) {
+                    Icon(
+                        imageVector = Icons.Default.CheckCircle,
+                        contentDescription = "Completed",
+                        tint = Gold
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Text(
+                text = challenge.shortName,
+                style = MaterialTheme.typography.bodyMedium,
+                color = TextGray
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "${challenge.points} points",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Gold
+                )
+
+                Icon(
+                    imageVector = Icons.Default.ArrowForward,
+                    contentDescription = "View Challenge",
+                    tint = Gold
+                )
+            }
+        }
     }
 }

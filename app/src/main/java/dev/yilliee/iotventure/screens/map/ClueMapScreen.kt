@@ -4,20 +4,22 @@ import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import android.location.Location
+import android.location.LocationListener
+import android.location.LocationManager
+import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -25,18 +27,30 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
-import com.google.android.gms.tasks.CancellationToken
-import com.google.android.gms.tasks.CancellationTokenSource
-import com.google.android.gms.tasks.OnTokenCanceledListener
-import dev.yilliee.iotventure.ui.theme.*
+import com.google.android.gms.location.LocationRequest
+import com.google.android.gms.location.LocationCallback
+import com.google.android.gms.location.LocationResult
+import dev.yilliee.iotventure.R
+import dev.yilliee.iotventure.data.model.Challenge
+import dev.yilliee.iotventure.data.repository.GameRepository
+import dev.yilliee.iotventure.di.ServiceLocator
+import dev.yilliee.iotventure.ui.theme.DarkBackground
+import dev.yilliee.iotventure.ui.theme.DarkSurface
+import dev.yilliee.iotventure.ui.theme.Gold
+import dev.yilliee.iotventure.ui.theme.TextGray
+import dev.yilliee.iotventure.ui.theme.TextWhite
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import org.osmdroid.config.Configuration
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.util.GeoPoint
+import org.osmdroid.views.CustomZoomButtonsController
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
-import org.osmdroid.views.overlay.Polyline
-import android.widget.Toast
+import org.osmdroid.views.overlay.Polygon
+import org.osmdroid.views.overlay.mylocation.GpsMyLocationProvider
+import org.osmdroid.views.overlay.mylocation.MyLocationNewOverlay
+import java.io.File
 
 fun Context.findActivity(): android.app.Activity? = when (this) {
     is android.app.Activity -> this
@@ -46,108 +60,129 @@ fun Context.findActivity(): android.app.Activity? = when (this) {
 
 @Composable
 fun ClueMapScreen(
-    onBackClick: () -> Unit
+    onBackClick: () -> Unit,
+    onScanClick: (Challenge) -> Unit,
+    initialChallengeId: Int = -1
 ) {
     val context = LocalContext.current
-    var selectedClue by remember { mutableStateOf<ClueMapPoint?>(null) }
-    val cluePoints = remember { getMockCluePoints() }
     val scope = rememberCoroutineScope()
-
-    // 1. Create FusedLocationProviderClient
-    val fusedLocationClient = remember { LocationServices.getFusedLocationProviderClient(context) }
-
-    // 2. Location state
-    var userLocation by remember { mutableStateOf<GeoPoint?>(null) }
-    var isRefreshingLocation by remember { mutableStateOf(false) }
-
-    // 3. Permission state
-    var hasLocationPermission by remember {
-        mutableStateOf(
-            ContextCompat.checkSelfPermission(
-                context,
-                Manifest.permission.ACCESS_FINE_LOCATION
-            ) == PackageManager.PERMISSION_GRANTED
-        )
-    }
-
-    // Create a reference to the MapView that can be accessed by the zoom buttons
     val mapViewRef = remember { mutableStateOf<MapView?>(null) }
+    val challenges = remember { mutableStateOf<List<Challenge>>(emptyList()) }
+    val userLocation = remember { mutableStateOf<GeoPoint?>(null) }
+    val selectedChallenge = remember { mutableStateOf<Challenge?>(null) }
+    val hasLocationPermission = remember { mutableStateOf(false) }
+    val shouldCenterOnUser = remember { mutableStateOf(initialChallengeId == -1) }
+    val initialChallenge = remember { mutableStateOf<Challenge?>(null) }
 
-    // 4. Permission launcher
-    val permissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
-        hasLocationPermission = isGranted
-        if (isGranted) {
-            // Get location immediately after permission is granted
-            isRefreshingLocation = true
-
-            try {
-                // Create a cancellation token
-                val cancellationToken = object : CancellationToken() {
-                    override fun onCanceledRequested(listener: OnTokenCanceledListener) =
-                        CancellationTokenSource().token
-
-                    override fun isCancellationRequested() = false
-                }
-
-                // Request location
-                fusedLocationClient.getCurrentLocation(
-                    Priority.PRIORITY_HIGH_ACCURACY,
-                    cancellationToken
-                ).addOnSuccessListener { location: Location? ->
-                    location?.let {
-                        userLocation = GeoPoint(it.latitude, it.longitude)
-                        mapViewRef.value?.controller?.animateTo(userLocation)
-                    }
-                    isRefreshingLocation = false
-                }.addOnFailureListener { e ->
-                    Toast.makeText(context, "Could not get location: ${e.message}", Toast.LENGTH_SHORT).show()
-                    isRefreshingLocation = false
-                }
-            } catch (e: Exception) {
-                Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
-                isRefreshingLocation = false
+    // Initialize OSMDroid configuration
+    LaunchedEffect(Unit) {
+        try {
+            val osmdroidDir = File(context.getExternalFilesDir(null), "osmdroid")
+            if (!osmdroidDir.exists()) {
+                osmdroidDir.mkdirs()
             }
-        } else {
-            Toast.makeText(context, "Location permission is required for accurate mapping", Toast.LENGTH_LONG).show()
+            
+            Configuration.getInstance().apply {
+                osmdroidBasePath = osmdroidDir
+                osmdroidTileCache = osmdroidDir
+                tileFileSystemCacheMaxBytes = 1024L * 1024L * 10L // 10MB
+                tileFileSystemCacheTrimBytes = 1024L * 1024L * 8L // 8MB
+                tileDownloadThreads = 2
+                tileFileSystemThreads = 8
+            }
+            Log.d("ClueMapScreen", "OSMDroid configuration initialized")
+        } catch (e: Exception) {
+            Log.e("ClueMapScreen", "Error initializing OSMDroid configuration", e)
         }
     }
 
-    // 5. Request permission if not granted and get initial location
+    // Request location permission
+    val locationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        hasLocationPermission.value = isGranted
+        Log.d("ClueMapScreen", "Location permission: $isGranted")
+    }
+
     LaunchedEffect(Unit) {
-        if (!hasLocationPermission) {
-            permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
-        } else {
-            // If we already have permission, get location on first launch
-            isRefreshingLocation = true
+        locationPermissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+    }
 
+    // Load challenges
+    LaunchedEffect(Unit) {
+        try {
+            val gameRepository = ServiceLocator.provideGameRepository(context)
+            gameRepository.getChallenges().collectLatest { loadedChallenges ->
+                challenges.value = loadedChallenges
+                Log.d("ClueMapScreen", "Loaded ${loadedChallenges.size} challenges")
+
+                // If we have an initial challenge ID, find and set it
+                if (initialChallengeId != -1) {
+                    val challenge = loadedChallenges.find { it.id == initialChallengeId }
+                    if (challenge != null) {
+                        initialChallenge.value = challenge
+                        shouldCenterOnUser.value = false
+                        Log.d("ClueMapScreen", "Set initial challenge: ${challenge.name}")
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("ClueMapScreen", "Error loading challenges", e)
+        }
+    }
+
+    // Set up location updates using FusedLocationProviderClient
+    LaunchedEffect(hasLocationPermission.value) @androidx.annotation.RequiresPermission(allOf = [android.Manifest.permission.ACCESS_FINE_LOCATION, android.Manifest.permission.ACCESS_COARSE_LOCATION]) {
+        if (hasLocationPermission.value) {
             try {
-                // Create a cancellation token
-                val cancellationToken = object : CancellationToken() {
-                    override fun onCanceledRequested(listener: OnTokenCanceledListener) =
-                        CancellationTokenSource().token
+                val fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
+                
+                val locationRequest = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 10000)
+                    .setMinUpdateIntervalMillis(5000)
+                    .build()
 
-                    override fun isCancellationRequested() = false
+                val locationCallback = object : LocationCallback() {
+                    override fun onLocationResult(locationResult: LocationResult) {
+                        locationResult.lastLocation?.let { location ->
+                            val geoPoint = GeoPoint(location.latitude, location.longitude)
+                            userLocation.value = geoPoint
+                            Log.d("ClueMapScreen", "Location updated: $geoPoint")
+                            
+                            if (shouldCenterOnUser.value) {
+                                mapViewRef.value?.controller?.animateTo(geoPoint)
+                            } else  {
+                                // Center on challenge location if one is selected
+                                val challenge = initialChallenge.value!!
+                                val challengeLocation = GeoPoint(
+                                    challenge.location.topLeft.lat-0.0009, // Add slight padding to the top
+                                    challenge.location.bottomRight.lng - 0.0014 // Add slight padding to the left
+                                )
+                                mapViewRef.value?.controller?.animateTo(challengeLocation)
+                            }
+                        }
+                    }
                 }
 
-                // Request location
-                fusedLocationClient.getCurrentLocation(
-                    Priority.PRIORITY_HIGH_ACCURACY,
-                    cancellationToken
-                ).addOnSuccessListener { location: Location? ->
+                fusedLocationClient.requestLocationUpdates(
+                    locationRequest,
+                    locationCallback,
+                    context.mainLooper
+                )
+
+                // Get initial location
+                fusedLocationClient.lastLocation.addOnSuccessListener { location ->
                     location?.let {
-                        userLocation = GeoPoint(it.latitude, it.longitude)
-                        mapViewRef.value?.controller?.animateTo(userLocation)
+                        val geoPoint = GeoPoint(location.latitude, location.longitude)
+                        userLocation.value = geoPoint
+                        Log.d("ClueMapScreen", "Initial location: $geoPoint")
+                        
+                        if (shouldCenterOnUser.value) {
+                            mapViewRef.value?.controller?.animateTo(geoPoint)
+                        }
                     }
-                    isRefreshingLocation = false
-                }.addOnFailureListener { e ->
-                    Toast.makeText(context, "Could not get location: ${e.message}", Toast.LENGTH_SHORT).show()
-                    isRefreshingLocation = false
                 }
             } catch (e: Exception) {
-                Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
-                isRefreshingLocation = false
+                Log.e("ClueMapScreen", "Error setting up location updates", e)
             }
         }
     }
@@ -164,133 +199,116 @@ fun ClueMapScreen(
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
-            // Map View
             AndroidView(
-                factory = { ctx ->
-                    // Initialize OSMDroid
-                    Configuration.getInstance().load(ctx, ctx.getSharedPreferences("osmdroid", Context.MODE_PRIVATE))
-
-                    // Create MapView
-                    MapView(ctx).apply {
-                        tag = "mapView"
+                factory = { context ->
+                    MapView(context).apply {
                         setTileSource(TileSourceFactory.MAPNIK)
-                        setMultiTouchControls(true) // Keep multi-touch for pinch zoom
-                        setBuiltInZoomControls(false)
-
-                        // Disable built-in zoom controls
-                        setBuiltInZoomControls(false)
-
-                        // Set a higher zoom level (15.0 is city level, higher numbers = more zoomed in)
-                        controller.setZoom(16.0)
-
-                        // Set initial position to Pakistan (if no location available)
-                        val initialPoint = GeoPoint(30.3753, 69.3451) // Center of Pakistan
-                        controller.setCenter(initialPoint)
-
-                        // Store reference to the MapView
+                        setMultiTouchControls(true)
+                        controller.setZoom(18.0)
                         mapViewRef.value = this
+                        
+                        // Disable default OSMDroid buttons
+                        zoomController.setVisibility(CustomZoomButtonsController.Visibility.NEVER)
+                        
+                        try {
+                            // Add location overlay
+                            if (hasLocationPermission.value) {
+                                val locationOverlay = MyLocationNewOverlay(GpsMyLocationProvider(context), this)
+                                locationOverlay.enableMyLocation()
+                                locationOverlay.enableFollowLocation()
+                                overlays.add(locationOverlay)
+                            }
+
+                            // If we have an initial challenge, center on it
+                            initialChallenge.value?.let { challenge ->
+                                try {
+                                    val geoPoint = GeoPoint(
+                                        challenge.location.topLeft.lat,
+                                        challenge.location.topLeft.lng
+                                    )
+                                    controller.animateTo(geoPoint)
+                                    Log.d("ClueMapScreen", "Centered on initial challenge: ${challenge.name}")
+                                } catch (e: Exception) {
+                                    Log.e("ClueMapScreen", "Error centering on initial challenge", e)
+                                }
+                            }
+                        } catch (e: Exception) {
+                            Log.e("ClueMapScreen", "Error initializing MapView", e)
+                        }
                     }
                 },
                 modifier = Modifier.fillMaxSize(),
                 update = { mapView ->
-                    // Update map with clue points
-                    mapView.overlays.clear()
+                    try {
+                        mapView.overlays.clear()
 
-                    // Add clue markers
-                    cluePoints.forEach { clue ->
-                        val marker = Marker(mapView).apply {
-                            position = GeoPoint(clue.latitude, clue.longitude)
-                            title = clue.title
-                            snippet = if (clue.isFound) "Found" else if (clue.isCurrent) "Current" else "Locked"
-                            icon = ContextCompat.getDrawable(
-                                context,
-                                android.R.drawable.ic_menu_compass
-                            )
-                            setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-                            setOnMarkerClickListener { _, _ ->
-                                selectedClue = clue
-                                true
+                        // Add user location marker
+                        userLocation.value?.let { location ->
+                            val locationOverlay = Marker(mapView).apply {
+                                position = location
+                                setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+                                icon = ContextCompat.getDrawable(context, R.drawable.ic_my_location)
+                                // Disable popup for user location marker
+                                setOnMarkerClickListener { _, _ -> true }
+                            }
+                            mapView.overlays.add(locationOverlay)
+                        }
+
+                        // Add challenge markers
+                        challenges.value.forEach { challenge ->
+                            try {
+                                val geoPoint = GeoPoint(
+                                    challenge.location.topLeft.lat,
+                                    challenge.location.topLeft.lng
+                                )
+                                
+                                // Create polygon for challenge area
+                                val polygon = Polygon(mapView).apply {
+                                    outlinePaint.color = dev.yilliee.iotventure.ui.theme.Gold.toArgb()
+                                    outlinePaint.strokeWidth = 3f
+                                    fillPaint.color = dev.yilliee.iotventure.ui.theme.Gold.copy(alpha = 0.2f).toArgb()
+                                    
+                                    // Create rectangle points
+                                    val points = listOf(
+                                        GeoPoint(challenge.location.topLeft.lat, challenge.location.topLeft.lng),
+                                        GeoPoint(challenge.location.topLeft.lat, challenge.location.bottomRight.lng),
+                                        GeoPoint(challenge.location.bottomRight.lat, challenge.location.bottomRight.lng),
+                                        GeoPoint(challenge.location.bottomRight.lat, challenge.location.topLeft.lng)
+                                    )
+                                    setPoints(points)
+                                }
+                                mapView.overlays.add(polygon)
+                                
+                                val marker = Marker(mapView).apply {
+                                    position = geoPoint
+                                    title = challenge.name
+                                    snippet = "${challenge.points} points"
+                                    setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+                                    icon = ContextCompat.getDrawable(context, R.drawable.ic_location_on)
+                                    
+                                    setOnMarkerClickListener { _, _ ->
+                                        selectedChallenge.value = challenge
+                                        true
+                                    }
+                                }
+                                mapView.overlays.add(marker)
+                            } catch (e: Exception) {
+                                Log.e("ClueMapScreen", "Error creating marker for challenge ${challenge.id}", e)
                             }
                         }
-                        mapView.overlays.add(marker)
+                    } catch (e: Exception) {
+                        Log.e("ClueMapScreen", "Error updating map overlays", e)
                     }
-
-                    // Add paths between found clues
-                    val completedClues = cluePoints.filter { it.isFound }
-                    if (completedClues.size > 1) {
-                        val path = Polyline().apply {
-                            outlinePaint.color = android.graphics.Color.parseColor("#FFD700") // Gold color
-                            outlinePaint.strokeWidth = 5f
-                        }
-
-                        completedClues.forEach { clue ->
-                            path.addPoint(GeoPoint(clue.latitude, clue.longitude))
-                        }
-
-                        mapView.overlays.add(path)
-                    }
-
-                    // Add current path if there's a next clue
-                    val lastCompletedClue = completedClues.lastOrNull()
-                    val nextClue = cluePoints.find { it.isCurrent }
-                    if (lastCompletedClue != null && nextClue != null) {
-                        val currentPath = Polyline().apply {
-                            outlinePaint.color = android.graphics.Color.parseColor("#FFD700") // Gold color
-                            outlinePaint.strokeWidth = 5f
-                            outlinePaint.alpha = 128 // Semi-transparent
-
-                            // Add dashed effect
-                            outlinePaint.pathEffect = android.graphics.DashPathEffect(floatArrayOf(10f, 5f), 0f)
-                        }
-
-                        currentPath.addPoint(GeoPoint(lastCompletedClue.latitude, lastCompletedClue.longitude))
-                        currentPath.addPoint(GeoPoint(nextClue.latitude, nextClue.longitude))
-
-                        mapView.overlays.add(currentPath)
-                    }
-
-                    // Add user location marker if available
-                    userLocation?.let { location ->
-                        val userMarker = Marker(mapView).apply {
-                            position = location
-                            title = "Your Location"
-                            icon = ContextCompat.getDrawable(
-                                context,
-                                android.R.drawable.ic_menu_mylocation
-                            )
-                            setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
-                        }
-                        mapView.overlays.add(userMarker)
-                    }
-
-                    mapView.invalidate()
                 }
             )
 
-            // Loading indicator for location refresh
-            if (isRefreshingLocation) {
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.Center)
-                        .size(80.dp)
-                        .background(DarkSurface.copy(alpha = 0.7f), shape = CircleShape),
-                    contentAlignment = Alignment.Center
-                ) {
-                    CircularProgressIndicator(
-                        color = Gold,
-                        modifier = Modifier.size(40.dp)
-                    )
-                }
-            }
-
-            // Map controls
+            // Map Controls Column
             Column(
                 modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                    .align(Alignment.TopEnd)
+                    .padding(16.dp)
             ) {
-                // Zoom in button
+                // Zoom In Button
                 FloatingActionButton(
                     onClick = {
                         mapViewRef.value?.controller?.zoomIn()
@@ -306,7 +324,9 @@ fun ClueMapScreen(
                     )
                 }
 
-                // Zoom out button
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Zoom Out Button
                 FloatingActionButton(
                     onClick = {
                         mapViewRef.value?.controller?.zoomOut()
@@ -321,50 +341,23 @@ fun ClueMapScreen(
                         modifier = Modifier.size(24.dp)
                     )
                 }
+            }
 
-                // My location button - Updated to use FusedLocationProviderClient
+            // My Location Button
+            if (selectedChallenge.value == null) {
                 FloatingActionButton(
                     onClick = {
-                        if (!isRefreshingLocation) {
-                            if (hasLocationPermission) {
-                                isRefreshingLocation = true
-
-                                try {
-                                    // Create a cancellation token
-                                    val cancellationToken = object : CancellationToken() {
-                                        override fun onCanceledRequested(listener: OnTokenCanceledListener) =
-                                            CancellationTokenSource().token
-
-                                        override fun isCancellationRequested() = false
-                                    }
-
-                                    // Request location
-                                    fusedLocationClient.getCurrentLocation(
-                                        Priority.PRIORITY_HIGH_ACCURACY,
-                                        cancellationToken
-                                    ).addOnSuccessListener { location: Location? ->
-                                        location?.let {
-                                            userLocation = GeoPoint(it.latitude, it.longitude)
-                                            mapViewRef.value?.controller?.animateTo(userLocation)
-                                        }
-                                        isRefreshingLocation = false
-                                    }.addOnFailureListener { e ->
-                                        Toast.makeText(context, "Could not get location: ${e.message}", Toast.LENGTH_SHORT).show()
-                                        isRefreshingLocation = false
-                                    }
-                                } catch (e: Exception) {
-                                    Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
-                                    isRefreshingLocation = false
-                                }
-                            } else {
-                                // Request permission if not granted
-                                permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
-                            }
+                        userLocation.value?.let { location ->
+                            mapViewRef.value?.controller?.animateTo(location)
+                            shouldCenterOnUser.value = true
                         }
                     },
-                    containerColor = if (isRefreshingLocation) Gold.copy(alpha = 0.5f) else DarkSurface,
-                    contentColor = if (isRefreshingLocation) DarkBackground else Gold,
-                    modifier = Modifier.size(48.dp)
+                    containerColor = DarkSurface,
+                    contentColor = Gold,
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(16.dp)
+                        .size(48.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.MyLocation,
@@ -374,8 +367,8 @@ fun ClueMapScreen(
                 }
             }
 
-            // Clue info card
-            selectedClue?.let { clue ->
+            // Challenge popup
+            selectedChallenge.value?.let { challenge ->
                 Card(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
@@ -387,88 +380,34 @@ fun ClueMapScreen(
                     shape = MaterialTheme.shapes.medium
                 ) {
                     Column(
-                        modifier = Modifier.padding(16.dp)
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp)
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically
+                        Text(
+                            text = challenge.name,
+                            style = MaterialTheme.typography.titleLarge,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "${challenge.points} points",
+                            style = MaterialTheme.typography.bodyLarge,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Button(
+                            onClick = { onScanClick(challenge) },
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(32.dp)
-                                    .clip(CircleShape)
-                                    .background(if (clue.isFound) SuccessGreen else Gold),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = clue.id.toString(),
-                                    color = DarkBackground,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-
-                            Spacer(modifier = Modifier.width(12.dp))
-
-                            Column(
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Text(
-                                    text = clue.title,
-                                    style = MaterialTheme.typography.titleMedium,
-                                    color = if (clue.isFound) SuccessGreen else Gold,
-                                    fontWeight = FontWeight.Bold
-                                )
-
-                                Text(
-                                    text = if (clue.isFound) "Found" else if (clue.isCurrent) "Current" else "Locked",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = TextGray
-                                )
-                            }
-
-                            IconButton(
-                                onClick = { selectedClue = null }
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Close,
-                                    contentDescription = "Close",
-                                    tint = TextGray
-                                )
-                            }
+                            Text("Scan NFC Token")
                         }
-
-                        if (clue.isFound || clue.isCurrent) {
-                            Spacer(modifier = Modifier.height(8.dp))
-
-                            Text(
-                                text = clue.description,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = TextWhite
-                            )
-
-                            if (clue.isCurrent) {
-                                Spacer(modifier = Modifier.height(8.dp))
-
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .background(
-                                            color = Gold.copy(alpha = 0.1f),
-                                            shape = RoundedCornerShape(8.dp)
-                                        )
-                                        .border(
-                                            width = 1.dp,
-                                            color = Gold,
-                                            shape = RoundedCornerShape(8.dp)
-                                        )
-                                        .padding(8.dp)
-                                ) {
-                                    Text(
-                                        text = "Hint: ${clue.hint}",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = Gold
-                                    )
-                                }
-                            }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        OutlinedButton(
+                            onClick = { selectedChallenge.value = null },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Close")
                         }
                     }
                 }
@@ -505,7 +444,7 @@ fun MapTopBar(
             Spacer(modifier = Modifier.width(16.dp))
 
             Text(
-                text = "Clue Map",
+                text = "Challenge Map",
                 style = MaterialTheme.typography.titleLarge,
                 color = TextWhite
             )
@@ -597,4 +536,35 @@ private fun getMockCluePoints(): List<ClueMapPoint> {
             isCurrent = false
         )
     )
+}
+
+// Helper function to update user location
+private fun updateUserLocation(context: Context, onLocationUpdate: (GeoPoint) -> Unit) {
+    val fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
+    try {
+        fusedLocationClient.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null)
+            .addOnSuccessListener { location: Location? ->
+                if (location != null) {
+                    onLocationUpdate(GeoPoint(location.latitude, location.longitude))
+                }
+            }
+    } catch (e: SecurityException) {
+        Log.e("ClueMapScreen", "Error getting location: ${e.message}")
+    }
+}
+
+// Helper function to check if a point is inside a polygon
+private fun isPointInPolygon(point: GeoPoint, polygon: List<GeoPoint>): Boolean {
+    var inside = false
+    var j = polygon.size - 1
+    for (i in polygon.indices) {
+        if ((polygon[i].latitude > point.latitude) != (polygon[j].latitude > point.latitude) &&
+            (point.longitude < (polygon[j].longitude - polygon[i].longitude) * (point.latitude - polygon[i].latitude) /
+                    (polygon[j].latitude - polygon[i].latitude) + polygon[i].longitude)
+        ) {
+            inside = !inside
+        }
+        j = i
+    }
+    return inside
 }
