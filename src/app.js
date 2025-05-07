@@ -67,6 +67,10 @@ const authenticateUser = (req, res, next) => {
   }
 }
 
+app.get("/api", (req, res) => {
+  return res.send("IOTVenture API")
+})
+
 // Admin login endpoint
 app.post("/api/admin/login", (req, res) => {
   const { username, password } = req.body
