@@ -363,7 +363,14 @@ class ApiService {
                 val url = URL("$baseUrl/api/team/emergency-lock")
                 val connection = url.openConnection() as HttpURLConnection
                 connection.requestMethod = "POST"
-                addAuthHeader(connection)
+                // Add device token to request
+                deviceToken?.let { token ->
+                    connection.setRequestProperty("Authorization", "Bearer $token")
+                    Log.d(TAG, "Added device token to emergency lock request")
+                } ?: run {
+                    Log.e(TAG, "No device token available for emergency lock request")
+                    return@withContext Result.failure(Exception("No device token available"))
+                }
                 connection.setRequestProperty("Accept", "application/json")
                 connection.connectTimeout = CONNECT_TIMEOUT
                 connection.readTimeout = READ_TIMEOUT

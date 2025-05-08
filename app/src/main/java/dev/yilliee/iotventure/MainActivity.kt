@@ -5,13 +5,13 @@ import android.nfc.NfcAdapter
 import android.os.Bundle
 import android.util.Log
 import android.view.WindowManager
-import android.view.View
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.OnBackPressedCallback
+import androidx.appcompat.app.AlertDialog
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
-import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.core.view.WindowCompat
@@ -25,16 +25,50 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
-    // Create a companion object to hold the NFC intent state that can be observed by the ScanNfcScreen
     companion object {
         private const val TAG = "MainActivity"
         val nfcIntent = mutableStateOf<Intent?>(null)
     }
 
     private val coroutineScope = CoroutineScope(Dispatchers.Main)
+    private var isEmergencyLocked = false
+    private var isDialogShowing = false
+    private var isHandlingLeave = false
+    private var isFinishing = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Prevent app from being minimized by gestures
+        window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+
+        // Set up back press handling
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                try {
+                    val authRepository = ServiceLocator.provideAuthRepository(this@MainActivity)
+                    val gameRepository = ServiceLocator.provideGameRepository(this@MainActivity)
+                    if (authRepository.isLoggedIn() && !isDialogShowing && !gameRepository.isEmergencyLocked()) {
+                        showExitDialog()
+                    } else if (!gameRepository.isEmergencyLocked()) {
+                        isEnabled = false
+                        onBackPressedDispatcher.onBackPressed()
+                    }
+                    // If emergency lock is active, do nothing (prevent back press)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error handling back press", e)
+                    // Fallback to default behavior if something goes wrong
+                    isEnabled = false
+                    onBackPressedDispatcher.onBackPressed()
+                }
+            }
+        })
+
+        // Initialize repositories
+        val authRepository = ServiceLocator.provideAuthRepository(this)
+        val gameRepository = ServiceLocator.provideGameRepository(this)
+        val isLoggedIn = authRepository.isLoggedIn()
+        val isEmergencyLocked = gameRepository.isEmergencyLocked()
 
         // Hide the status bar and make the app fullscreen
         WindowCompat.setDecorFitsSystemWindows(window, false)
@@ -59,12 +93,8 @@ class MainActivity : ComponentActivity() {
             Log.d(TAG, "App launched from NFC intent")
         }
 
-        // Initialize repositories
-        val authRepository = ServiceLocator.provideAuthRepository(this)
-        val gameRepository = ServiceLocator.provideGameRepository(this)
-        val isLoggedIn = authRepository.isLoggedIn()
-
         Log.d(TAG, "User is logged in: $isLoggedIn")
+        Log.d(TAG, "Emergency lock is active: $isEmergencyLocked")
 
         if (isLoggedIn) {
             val username = authRepository.getUsername()
@@ -87,14 +117,48 @@ class MainActivity : ComponentActivity() {
                     color = MaterialTheme.colorScheme.background
                 ) {
                     AppNavigation(
-                        startDestination = if (isLoggedIn) {
-                            dev.yilliee.iotventure.navigation.AppDestinations.DASHBOARD_ROUTE
-                        } else {
-                            dev.yilliee.iotventure.navigation.AppDestinations.LOGIN_ROUTE
+                        startDestination = when {
+                            isEmergencyLocked -> dev.yilliee.iotventure.navigation.AppDestinations.EMERGENCY_UNLOCK_ROUTE
+                            isLoggedIn -> dev.yilliee.iotventure.navigation.AppDestinations.DASHBOARD_ROUTE
+                            else -> dev.yilliee.iotventure.navigation.AppDestinations.LOGIN_ROUTE
                         },
                         context = this
                     )
                 }
+            }
+        }
+    }
+
+    override fun onStop() {
+        super.onStop()
+        if (!isFinishing && !isDialogShowing && !isHandlingLeave) {
+            try {
+                val authRepository = ServiceLocator.provideAuthRepository(this)
+                val gameRepository = ServiceLocator.provideGameRepository(this)
+                if (authRepository.isLoggedIn() && !gameRepository.isEmergencyLocked()) {
+                    isHandlingLeave = true
+                    showExitDialog()
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error handling app stop", e)
+            }
+        }
+    }
+
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        if (!isHandlingLeave && !isDialogShowing) {
+            isHandlingLeave = true
+            try {
+                val authRepository = ServiceLocator.provideAuthRepository(this)
+                val gameRepository = ServiceLocator.provideGameRepository(this)
+                if (authRepository.isLoggedIn() && !gameRepository.isEmergencyLocked()) {
+                    showExitDialog()
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error handling user leave", e)
+            } finally {
+                isHandlingLeave = false
             }
         }
     }
@@ -130,12 +194,84 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // Add onDestroy method to clear data when app is closed
+    override fun onPause() {
+        super.onPause()
+        
+        // Check if this is a real pause (app being minimized) and not just a configuration change
+        if (!isChangingConfigurations) {
+            try {
+                val authRepository = ServiceLocator.provideAuthRepository(this)
+                val gameRepository = ServiceLocator.provideGameRepository(this)
+                if (authRepository.isLoggedIn() && !gameRepository.isEmergencyLocked()) {
+                    showExitDialog()
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error handling app minimization", e)
+            }
+        }
+    }
+
+    private fun showExitDialog() {
+        if (isDialogShowing) return
+        
+        try {
+            val gameRepository = ServiceLocator.provideGameRepository(this)
+            if (gameRepository.isEmergencyLocked()) {
+                // Don't show exit dialog if emergency lock is active
+                return
+            }
+
+            isDialogShowing = true
+            val builder = AlertDialog.Builder(this)
+            builder.setTitle("Exit Game")
+                .setMessage("Do you want to exit the game? Your progress will be saved but you may forfeit any ongoing challenges.")
+                .setPositiveButton("Exit") { _, _ ->
+                    isEmergencyLocked = false  // Ensure data is cleared on normal exit
+                    isDialogShowing = false
+                    isFinishing = true
+                    finish()
+                }
+                .setNegativeButton("Stay") { dialog, _ ->
+                    isDialogShowing = false
+                    isHandlingLeave = false
+                    dialog.dismiss()
+                }
+                .setNeutralButton("Emergency Lock") { _, _ ->
+                    coroutineScope.launch {
+                        try {
+                            val gameRepository = ServiceLocator.provideGameRepository(this@MainActivity)
+                            gameRepository.emergencyLock()
+                            isEmergencyLocked = true
+                            isDialogShowing = false
+                            isFinishing = true
+                            finish()
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Error during emergency lock", e)
+                            // If emergency lock fails, just exit normally
+                            finish()
+                        }
+                    }
+                }
+                .setCancelable(false)
+                .setOnDismissListener {
+                    isDialogShowing = false
+                    isHandlingLeave = false
+                }
+                .show()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error showing exit dialog", e)
+            isDialogShowing = false
+            isHandlingLeave = false
+            // If dialog fails to show, just exit normally
+            finish()
+        }
+    }
+
     override fun onDestroy() {
         super.onDestroy()
 
-        // Only clear data if this is a real app termination, not a configuration change
-        if (isFinishing) {
+        // Only clear data if this is a real app termination and not emergency locked
+        if (isFinishing && !isEmergencyLocked) {
             Log.d(TAG, "App is being destroyed (not for configuration change)")
             coroutineScope.launch {
                 try {
@@ -147,6 +283,8 @@ class MainActivity : ComponentActivity() {
                     Log.e(TAG, "Error during logout on app termination", e)
                 }
             }
+        } else {
+            Log.d(TAG, "App is being destroyed but data is preserved (emergency locked or configuration change)")
         }
     }
 

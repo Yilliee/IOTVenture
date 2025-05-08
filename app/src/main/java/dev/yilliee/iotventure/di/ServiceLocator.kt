@@ -1,6 +1,7 @@
 package dev.yilliee.iotventure.di
 
 import android.content.Context
+import android.util.Log
 import dev.yilliee.iotventure.data.local.PreferencesManager
 import dev.yilliee.iotventure.data.remote.ApiService
 import dev.yilliee.iotventure.data.repository.AuthRepository
@@ -34,6 +35,7 @@ object ServiceLocator {
             // Set device token if available
             prefs.getDeviceToken()?.let { token ->
                 api.setDeviceToken(token)
+                Log.d("ServiceLocator", "Set device token in ApiService: $token")
             }
             api.also {
                 apiService = it

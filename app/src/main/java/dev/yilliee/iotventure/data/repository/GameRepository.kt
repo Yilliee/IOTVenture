@@ -35,10 +35,14 @@ class GameRepository(
     private val _solvedChallenges = MutableStateFlow<Set<Int>>(emptySet())
     val solvedChallenges: StateFlow<Set<Int>> = _solvedChallenges.asStateFlow()
 
+    private val _isEmergencyLocked = MutableStateFlow(false)
+    val isEmergencyLocked: StateFlow<Boolean> = _isEmergencyLocked.asStateFlow()
+
     init {
         // Initialize state from preferences
         _challenges.value = preferencesManager.getChallenges()
         _solvedChallenges.value = preferencesManager.getSolvedChallenges()
+        _isEmergencyLocked.value = preferencesManager.isEmergencyLocked()
         Log.d(TAG, "Initialized with ${_challenges.value.size} challenges and ${_solvedChallenges.value.size} solved challenges")
     }
 
@@ -200,21 +204,34 @@ class GameRepository(
     suspend fun emergencyLock() {
         try {
             Log.d(TAG, "Triggering emergency lock")
-            val result = apiService.emergencyLock()
-            if (result.isSuccess) {
-                Log.d(TAG, "Emergency lock successful")
-            } else {
-                Log.e(TAG, "Emergency lock failed: ${result.exceptionOrNull()?.message}")
-            }
-
-            // Clear solve queue and solved challenges regardless of server response
-            preferencesManager.setSolveQueue(emptyList())
-            preferencesManager.setSolvedChallenges(emptyList())
-            _solvedChallenges.value = emptySet()
-            Log.d(TAG, "Cleared solve queue and solved challenges")
+            // Save emergency lock state locally without server request
+            preferencesManager.setEmergencyLocked(true)
+            _isEmergencyLocked.value = true
+            Log.d(TAG, "Emergency lock state saved locally")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to emergency lock", e)
+            throw e
         }
+    }
+
+    /**
+     * Checks if the game is in emergency lock state
+     */
+    fun isEmergencyLocked(): Boolean {
+        return _isEmergencyLocked.value
+    }
+
+    /**
+     * Clears emergency lock state
+     */
+    fun clearEmergencyLock() {
+        preferencesManager.setEmergencyLocked(false)
+        _isEmergencyLocked.value = false
+        // Clear solve queue and solved challenges when unlocking
+        preferencesManager.setSolveQueue(emptyList())
+        preferencesManager.setSolvedChallenges(emptyList())
+        _solvedChallenges.value = emptySet()
+        Log.d(TAG, "Cleared emergency lock and game data")
     }
 
     /**
@@ -259,7 +276,7 @@ class GameRepository(
         if (total == 0) return 0
 
         val solved = preferencesManager.getSolvedChallenges().size
-        val percentage = ((solved.toDouble() * 100) / total).toInt()
+        val percentage = if (total == solved) 100 else ((solved.toDouble() * 100) / total).toInt()
         Log.d(TAG, "Completion percentage: $percentage% ($solved/$total)")
         return percentage
     }

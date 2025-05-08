@@ -16,6 +16,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.activity.compose.BackHandler
 import dev.yilliee.iotventure.di.ServiceLocator
 import dev.yilliee.iotventure.ui.theme.*
 import kotlinx.coroutines.delay
@@ -25,21 +26,31 @@ import kotlinx.coroutines.launch
 fun EmergencyUnlockScreen(
     onBackClick: () -> Unit,
     onExitGame: () -> Unit,
-    onReturnToGame: () -> Unit
+    onUnlockComplete: () -> Unit = {}
 ) {
     var countdown by remember { mutableIntStateOf(5) }
     var unlocking by remember { mutableStateOf(false) }
-    var showDialog by remember { mutableStateOf(false) }
+    var locking by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
-    // Get auth repository for logout
+    // Get repositories
     val context = LocalContext.current
-    val authRepository = remember { ServiceLocator.provideAuthRepository(context) }
+    val gameRepository = remember { ServiceLocator.provideGameRepository(context) }
     var isLoggingOut by remember { mutableStateOf(false) }
+
+    // Observe emergency lock state
+    val isEmergencyLocked by gameRepository.isEmergencyLocked.collectAsState()
+
+    // Handle back press
+    BackHandler(enabled = isEmergencyLocked) {
+        // Do nothing when emergency lock is active
+    }
 
     Scaffold(
         topBar = {
-            EmergencyTopBar(onBackClick = onBackClick)
+            if (!isEmergencyLocked) {
+                EmergencyTopBar(onBackClick = onUnlockComplete) // Navigate to dashboard when back is pressed in unlocked state
+            }
         }
     ) { paddingValues ->
         Column(
@@ -67,230 +78,206 @@ fun EmergencyUnlockScreen(
                 contentAlignment = Alignment.Center
             ) {
                 Column(
-                    horizontalAlignment = Alignment.CenterHorizontally
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
                 ) {
                     Icon(
                         imageVector = Icons.Default.Warning,
                         contentDescription = "Warning",
                         tint = ErrorRed,
-                        modifier = Modifier.size(64.dp)
+                        modifier = Modifier.size(48.dp)
                     )
 
                     Spacer(modifier = Modifier.height(16.dp))
 
                     Text(
-                        text = "Emergency Unlock",
-                        style = MaterialTheme.typography.headlineMedium,
+                        text = if (isEmergencyLocked) "Emergency Lock Active" else "Emergency Lock",
+                        style = MaterialTheme.typography.titleLarge,
                         color = ErrorRed,
                         fontWeight = FontWeight.Bold
                     )
 
-                    Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(8.dp))
 
                     Text(
-                        text = "This will unlock the game and allow you to exit. Your progress will be saved, but you may forfeit any ongoing challenges.",
+                        text = if (isEmergencyLocked) 
+                            "Your game progress has been saved. You can now safely exit the app."
+                        else 
+                            "Activate emergency lock to prevent data loss when minimizing or closing the app.",
                         style = MaterialTheme.typography.bodyLarge,
                         color = TextWhite,
                         textAlign = TextAlign.Center
-                    )
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    Text(
-                        text = "Only use this in case of a real emergency.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = ErrorRed,
-                        fontWeight = FontWeight.Bold
                     )
                 }
             }
 
             Spacer(modifier = Modifier.height(32.dp))
 
-            if (unlocking) {
-                // Countdown
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Text(
-                        text = "Unlocking in",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = TextWhite
-                    )
+            if (isEmergencyLocked) {
+                if (unlocking) {
+                    // Countdown
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = "Unlocking in",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = TextWhite
+                        )
 
-                    Spacer(modifier = Modifier.height(8.dp))
+                        Spacer(modifier = Modifier.height(8.dp))
 
-                    Text(
-                        text = countdown.toString(),
-                        style = MaterialTheme.typography.headlineLarge.copy(
-                            fontSize = 48.sp
+                        Text(
+                            text = countdown.toString(),
+                            style = MaterialTheme.typography.headlineLarge.copy(
+                                fontSize = 48.sp
+                            ),
+                            color = ErrorRed,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                } else {
+                    // Unlock Button
+                    Button(
+                        onClick = {
+                            unlocking = true
+
+                            // Start countdown
+                            scope.launch {
+                                repeat(5) {
+                                    delay(1000)
+                                    countdown--
+                                }
+                                // Clear emergency lock after countdown
+                                isLoggingOut = true
+                                try {
+                                    gameRepository.clearEmergencyLock()
+                                    // Navigate to dashboard after successful unlock
+                                    onUnlockComplete()
+                                } finally {
+                                    isLoggingOut = false
+                                    unlocking = false
+                                    countdown = 5
+                                }
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = ErrorRed,
+                            contentColor = DarkBackground
                         ),
-                        color = ErrorRed,
-                        fontWeight = FontWeight.Bold
-                    )
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(50.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Lock,
+                            contentDescription = "Unlock",
+                            modifier = Modifier.size(24.dp)
+                        )
+
+                        Spacer(modifier = Modifier.width(8.dp))
+
+                        Text(
+                            text = "Emergency Unlock",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
             } else {
-                // Unlock Button
-                Button(
-                    onClick = {
-                        unlocking = true
+                if (locking) {
+                    // Lock countdown
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = "Activating lock in",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = TextWhite
+                        )
 
-                        // Start countdown
-                        scope.launch {
-                            repeat(5) {
-                                delay(1000)
-                                countdown--
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Text(
+                            text = countdown.toString(),
+                            style = MaterialTheme.typography.headlineLarge.copy(
+                                fontSize = 48.sp
+                            ),
+                            color = ErrorRed,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                } else {
+                    // Activate Lock Button
+                    Button(
+                        onClick = {
+                            locking = true
+                            countdown = 5
+
+                            // Start countdown
+                            scope.launch {
+                                repeat(5) {
+                                    delay(1000)
+                                    countdown--
+                                }
+                                // Activate emergency lock after countdown
+                                isLoggingOut = true
+                                try {
+                                    gameRepository.emergencyLock()
+                                } finally {
+                                    isLoggingOut = false
+                                    locking = false
+                                    countdown = 5
+                                }
                             }
-                            // Set showDialog to true after countdown
-                            showDialog = true
-                        }
-                    },
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = ErrorRed,
-                        contentColor = DarkBackground
-                    ),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(50.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Lock,
-                        contentDescription = "Unlock",
-                        modifier = Modifier.size(24.dp)
-                    )
+                        },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = ErrorRed,
+                            contentColor = DarkBackground
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(50.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Lock,
+                            contentDescription = "Lock",
+                            modifier = Modifier.size(24.dp)
+                        )
 
-                    Spacer(modifier = Modifier.width(8.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
 
-                    Text(
-                        text = "Emergency Unlock",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
+                        Text(
+                            text = "Activate Emergency Lock",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
             }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // Cancel Button
-            TextButton(
-                onClick = onBackClick,
-                enabled = !unlocking,
-                colors = ButtonDefaults.textButtonColors(
-                    contentColor = if (unlocking) TextGray else TextWhite
-                )
-            ) {
-                Text("Cancel")
-            }
-        }
-        if (showDialog) {
-            ShowUnlockDialog(
-                onExitGame = {
-                    // Perform logout before exiting
-                    scope.launch {
-                        isLoggingOut = true
-                        authRepository.logout()
-                        isLoggingOut = false
-                        onExitGame()
-                    }
-                },
-                onReturnToGame = onReturnToGame,
-                isLoggingOut = isLoggingOut
-            )
         }
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun EmergencyTopBar(
     onBackClick: () -> Unit
 ) {
-    Surface(
-        color = DarkSurface,
-        tonalElevation = 4.dp
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            IconButton(
-                onClick = onBackClick,
-                modifier = Modifier.size(40.dp)
-            ) {
+    TopAppBar(
+        title = { Text("Emergency Lock") },
+        navigationIcon = {
+            IconButton(onClick = onBackClick) {
                 Icon(
                     imageVector = Icons.Default.ArrowBack,
-                    contentDescription = "Back",
-                    tint = TextWhite
+                    contentDescription = "Back"
                 )
             }
-
-            Text(
-                text = "Emergency Unlock",
-                style = MaterialTheme.typography.titleMedium,
-                color = TextWhite
-            )
-
-            // Empty box for alignment
-            Box(modifier = Modifier.size(40.dp))
-        }
-    }
-}
-
-@Composable
-private fun ShowUnlockDialog(
-    onExitGame: () -> Unit,
-    onReturnToGame: () -> Unit,
-    isLoggingOut: Boolean
-) {
-    var showDialog by remember { mutableStateOf(true) }
-
-    if (showDialog) {
-        AlertDialog(
-            onDismissRequest = { showDialog = false },
-            title = {
-                Text("Game Unlocked")
-            },
-            text = {
-                Column {
-                    Text("Emergency unlock activated. Your game progress has been saved. You can now exit the app.")
-
-                    if (isLoggingOut) {
-                        Spacer(modifier = Modifier.height(16.dp))
-                        LinearProgressIndicator(
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text("Logging out...", color = TextGray)
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        showDialog = false
-                        onExitGame()
-                    },
-                    enabled = !isLoggingOut
-                ) {
-                    Text("Exit Game", color = if (isLoggingOut) TextGray else ErrorRed)
-                }
-            },
-            dismissButton = {
-                TextButton(
-                    onClick = {
-                        showDialog = false
-                        onReturnToGame()
-                    },
-                    enabled = !isLoggingOut
-                ) {
-                    Text("Return to Game", color = if (isLoggingOut) TextGray else TextWhite)
-                }
-            },
+        },
+        colors = TopAppBarDefaults.topAppBarColors(
             containerColor = DarkSurface,
             titleContentColor = TextWhite,
-            textContentColor = TextWhite
+            navigationIconContentColor = TextWhite
         )
-    }
+    )
 }

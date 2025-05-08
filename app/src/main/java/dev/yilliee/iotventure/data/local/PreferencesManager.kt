@@ -28,6 +28,7 @@ class PreferencesManager(context: Context) {
         private const val KEY_SOLVE_QUEUE = "solve_queue"
         private const val KEY_GAME_START_TIME = "game_start_time"
         private const val KEY_IS_LOGGED_IN = "is_logged_in"
+        private const val KEY_EMERGENCY_LOCKED = "emergency_locked"
     }
 
     private val prefs: SharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -183,6 +184,29 @@ class PreferencesManager(context: Context) {
 
     fun getServerPort(): String {
         return prefs.getString(KEY_SERVER_PORT, "3000") ?: "3000"
+    }
+
+    /**
+     * Sets the emergency lock state
+     */
+    fun setEmergencyLocked(isLocked: Boolean) {
+        prefs.edit().putBoolean(KEY_EMERGENCY_LOCKED, isLocked).apply()
+    }
+
+    /**
+     * Gets the emergency lock state
+     */
+    fun isEmergencyLocked(): Boolean {
+        return prefs.getBoolean(KEY_EMERGENCY_LOCKED, false)
+    }
+
+    /**
+     * Clears all data except emergency lock state
+     */
+    fun clearAllDataExceptEmergencyLock() {
+        val isLocked = isEmergencyLocked()
+        prefs.edit().clear().apply()
+        setEmergencyLocked(isLocked)
     }
 
     // Clear all data on logout
