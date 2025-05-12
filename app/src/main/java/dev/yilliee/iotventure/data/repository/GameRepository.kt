@@ -3,7 +3,9 @@ package dev.yilliee.iotventure.data.repository
 import android.util.Log
 import dev.yilliee.iotventure.data.model.Challenge
 import dev.yilliee.iotventure.data.model.NfcValidationResult
+import dev.yilliee.iotventure.data.model.SolveSubmission
 import dev.yilliee.iotventure.data.model.TeamSolve
+import dev.yilliee.iotventure.data.model.UpdateLeaderboardRequest
 import dev.yilliee.iotventure.data.remote.ApiService
 import dev.yilliee.iotventure.data.local.PreferencesManager
 import kotlinx.coroutines.flow.Flow
@@ -13,6 +15,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 
 class GameRepository(
     private val preferencesManager: PreferencesManager,
@@ -38,6 +41,10 @@ class GameRepository(
     private val _isEmergencyLocked = MutableStateFlow(false)
     val isEmergencyLocked: StateFlow<Boolean> = _isEmergencyLocked.asStateFlow()
 
+    // New state flow for leaderboard refresh
+    private val _leaderboardRefreshTrigger = MutableStateFlow(0)
+    val leaderboardRefreshTrigger: StateFlow<Int> = _leaderboardRefreshTrigger.asStateFlow()
+
     init {
         // Initialize state from preferences
         _challenges.value = preferencesManager.getChallenges()
@@ -51,7 +58,7 @@ class GameRepository(
         val currentSolvedChallenges = _solvedChallenges.value
         _challenges.value = preferencesManager.getChallenges()
         _solvedChallenges.value = preferencesManager.getSolvedChallenges()
-        
+
         // Only log if there's a change in solved challenges
         if (currentSolvedChallenges != _solvedChallenges.value) {
             Log.d(TAG, "Solved challenges changed from $currentSolvedChallenges to ${_solvedChallenges.value}")
@@ -110,22 +117,78 @@ class GameRepository(
      * Adds a solved challenge to the queue for server submission
      */
     suspend fun addToSolveQueue(challenge: Challenge) {
-        val currentQueue = preferencesManager.getSolveQueue().toMutableList()
-        if (!currentQueue.any { it.id == challenge.id }) {
-            currentQueue.add(challenge)
-            preferencesManager.setSolveQueue(currentQueue)
-            Log.d(TAG, "Added challenge ${challenge.id} to solve queue")
+        try {
+            val currentQueue = preferencesManager.getSolveQueue().toMutableList()
+            if (!currentQueue.any { it.id == challenge.id }) {
+                currentQueue.add(challenge)
+                preferencesManager.setSolveQueue(currentQueue)
+                Log.d(TAG, "Added challenge ${challenge.id} to solve queue")
+            }
+
+            // Mark as solved locally
+            val solvedChallenges = preferencesManager.getSolvedChallenges().toMutableSet()
+            solvedChallenges.add(challenge.id)
+            preferencesManager.setSolvedChallenges(solvedChallenges.toList())
+            _solvedChallenges.value = solvedChallenges
+            Log.d(TAG, "Marked challenge ${challenge.id} as solved locally")
+
+            // Update challenges list to reflect solved status
+            _challenges.value = preferencesManager.getChallenges()
+
+            // Submit the solve to the server immediately
+            try {
+                submitSolveToServer(challenge)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error submitting solve to server, will retry later: ${e.message}")
+                // Don't rethrow - we'll retry later during submitSolves()
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error in addToSolveQueue: ${e.message}")
+            // Don't rethrow to prevent app crashes
         }
+    }
 
-        // Mark as solved locally
-        val solvedChallenges = preferencesManager.getSolvedChallenges().toMutableSet()
-        solvedChallenges.add(challenge.id)
-        preferencesManager.setSolvedChallenges(solvedChallenges.toList())
-        _solvedChallenges.value = solvedChallenges
-        Log.d(TAG, "Marked challenge ${challenge.id} as solved locally")
+    /**
+     * Submits a single solve to the server using the update-leaderboard endpoint
+     */
+    private suspend fun submitSolveToServer(challenge: Challenge) {
+        try {
+            val deviceToken = apiService.getDeviceToken()
+            if (deviceToken == null) {
+                Log.e(TAG, "Cannot submit solve: No device token available")
+                return
+            }
 
-        // Update challenges list to reflect solved status
-        _challenges.value = preferencesManager.getChallenges()
+            val solveSubmission = SolveSubmission(
+                challengeId = challenge.id,
+                solvedAt = System.currentTimeMillis()
+            )
+
+            val request = UpdateLeaderboardRequest(
+                deviceToken = deviceToken,
+                solves = listOf(solveSubmission),
+                isFinalSubmission = false
+            )
+
+            Log.d(TAG, "Submitting solve for challenge ${challenge.id} to update-leaderboard endpoint")
+            val result = apiService.updateLeaderboard(request)
+
+            if (result.isSuccess) {
+                Log.d(TAG, "Successfully submitted solve for challenge ${challenge.id}")
+
+                // Trigger leaderboard refresh
+                try {
+                    refreshLeaderboard()
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error refreshing leaderboard: ${e.message}")
+                }
+            } else {
+                Log.e(TAG, "Failed to submit solve for challenge ${challenge.id}: ${result.exceptionOrNull()?.message}")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Exception submitting solve for challenge ${challenge.id}", e)
+            // Don't rethrow to prevent app crashes
+        }
     }
 
     /**
@@ -141,38 +204,52 @@ class GameRepository(
         Log.d(TAG, "Submitting ${solveQueue.size} solves from queue")
 
         try {
-            var successCount = 0
-            val failedSolves = mutableListOf<Challenge>()
-
-            for (challenge in solveQueue) {
-                try {
-                    Log.d(TAG, "Submitting solve for challenge ${challenge.id} with key hash ${challenge.keyHash}")
-                    val result = apiService.submitSolve(challenge.id, challenge.keyHash)
-                    if (result.isSuccess) {
-                        successCount++
-                        Log.d(TAG, "Successfully submitted solve for challenge ${challenge.id}")
-                    } else {
-                        Log.e(TAG, "Failed to submit solve for challenge ${challenge.id}: ${result.exceptionOrNull()?.message}")
-                        failedSolves.add(challenge)
-                    }
-                } catch (e: Exception) {
-                    Log.e(TAG, "Exception submitting solve for challenge ${challenge.id}", e)
-                    failedSolves.add(challenge)
-                }
+            val deviceToken = apiService.getDeviceToken()
+            if (deviceToken == null) {
+                Log.e(TAG, "Cannot submit solves: No device token available")
+                return
             }
 
-            // Only keep failed solves in the queue
-            if (failedSolves.isNotEmpty()) {
-                Log.d(TAG, "Keeping ${failedSolves.size} failed solves in queue for retry")
-                preferencesManager.setSolveQueue(failedSolves)
-            } else {
-                Log.d(TAG, "All solves submitted successfully, clearing queue")
+            val solveSubmissions = solveQueue.map { challenge ->
+                SolveSubmission(
+                    challengeId = challenge.id,
+                    solvedAt = System.currentTimeMillis()
+                )
+            }
+
+            val request = UpdateLeaderboardRequest(
+                deviceToken = deviceToken,
+                solves = solveSubmissions,
+                isFinalSubmission = false
+            )
+
+            val result = apiService.updateLeaderboard(request)
+
+            if (result.isSuccess) {
+                Log.d(TAG, "Successfully submitted all solves to server")
                 preferencesManager.setSolveQueue(emptyList())
-            }
 
-            Log.d(TAG, "Successfully submitted $successCount solves to server")
+                // Trigger leaderboard refresh
+                refreshLeaderboard()
+            } else {
+                Log.e(TAG, "Failed to submit solves: ${result.exceptionOrNull()?.message}")
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to submit solves", e)
+            // Don't throw, just log the error
+        }
+    }
+
+    /**
+     * Triggers a leaderboard refresh
+     */
+    fun refreshLeaderboard() {
+        try {
+            _leaderboardRefreshTrigger.value = _leaderboardRefreshTrigger.value + 1
+            Log.d(TAG, "Triggered leaderboard refresh: ${_leaderboardRefreshTrigger.value}")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error refreshing leaderboard", e)
+            // Don't throw, just log the error
         }
     }
 
@@ -239,23 +316,36 @@ class GameRepository(
      */
     suspend fun validateNfcTag(tagId: String) {
         Log.d(TAG, "Validating NFC tag: $tagId")
-        val challenges = preferencesManager.getChallenges()
 
-        // Find a challenge with matching key hash
-        val challenge = challenges.find { it.keyHash == tagId }
+        // Set initial state to Processing
+        _nfcValidationResult.value = NfcValidationResult.Processing
 
-        if (challenge != null) {
+        try {
+            val challenges = preferencesManager.getChallenges()
+
+            // First check if it's already solved to avoid unnecessary server calls
             val solvedChallenges = preferencesManager.getSolvedChallenges()
+            val matchingChallenge = challenges.find { it.keyHash == tagId }
 
-            if (solvedChallenges.contains(challenge.id)) {
-                Log.d(TAG, "Challenge ${challenge.id} already solved")
-                _nfcValidationResult.value = NfcValidationResult.AlreadySolved
+            if (matchingChallenge != null) {
+                if (solvedChallenges.contains(matchingChallenge.id)) {
+                    Log.d(TAG, "Challenge ${matchingChallenge.id} already solved")
+                    _nfcValidationResult.value = NfcValidationResult.AlreadySolved
+                    return
+                }
+
+                Log.d(TAG, "Valid challenge found: ${matchingChallenge.id} - ${matchingChallenge.name}")
+                _nfcValidationResult.value = NfcValidationResult.Valid(matchingChallenge)
             } else {
-                Log.d(TAG, "Valid challenge found: ${challenge.id} - ${challenge.name}")
-                _nfcValidationResult.value = NfcValidationResult.Valid(challenge)
+                // If not found locally, we could optionally check with server here
+                // For now, just return invalid
+                Log.d(TAG, "No matching challenge found for tag")
+                _nfcValidationResult.value = NfcValidationResult.Invalid
             }
-        } else {
-            Log.d(TAG, "No matching challenge found for tag")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error validating NFC tag", e)
+            // Keep the Processing state to let the timeout handle it
+            // or set to Invalid if you want immediate feedback
             _nfcValidationResult.value = NfcValidationResult.Invalid
         }
     }

@@ -179,11 +179,11 @@ class PreferencesManager(context: Context) {
     }
 
     fun getServerIp(): String {
-        return prefs.getString(KEY_SERVER_IP, "192.168.100.18") ?: "192.168.100.18"
+        return prefs.getString(KEY_SERVER_IP, "iotventure.yillie.me") ?: "iotventure.yillie.me"
     }
 
     fun getServerPort(): String {
-        return prefs.getString(KEY_SERVER_PORT, "3000") ?: "3000"
+        return prefs.getString(KEY_SERVER_PORT, "443") ?: "443"
     }
 
     /**
@@ -214,10 +214,10 @@ class PreferencesManager(context: Context) {
         // Save current server settings
         val currentIp = getServerIp()
         val currentPort = getServerPort()
-        
+
         // Clear all preferences
         prefs.edit().clear().apply()
-        
+
         // Restore server settings
         saveServerSettings(currentIp, currentPort)
     }

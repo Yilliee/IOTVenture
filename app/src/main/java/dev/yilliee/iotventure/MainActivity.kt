@@ -1,5 +1,7 @@
 package dev.yilliee.iotventure
 
+import android.Manifest
+import android.app.ActivityManager
 import android.content.Intent
 import android.nfc.NfcAdapter
 import android.os.Bundle
@@ -8,7 +10,7 @@ import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.OnBackPressedCallback
-import androidx.appcompat.app.AlertDialog
+import androidx.annotation.RequiresPermission
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -35,12 +37,13 @@ class MainActivity : ComponentActivity() {
     private var isDialogShowing = false
     private var isHandlingLeave = false
     private var isFinishing = false
+    private var isFromNfcScan = false // Track if we're coming from NFC scan
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         // Prevent app from being minimized by gestures
-        window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        //window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
 
         // Set up back press handling
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
@@ -48,21 +51,26 @@ class MainActivity : ComponentActivity() {
                 try {
                     val authRepository = ServiceLocator.provideAuthRepository(this@MainActivity)
                     val gameRepository = ServiceLocator.provideGameRepository(this@MainActivity)
-                    if (authRepository.isLoggedIn() && !isDialogShowing && !gameRepository.isEmergencyLocked()) {
+                    if (authRepository.isLoggedIn() && !gameRepository.isEmergencyLocked()) {
                         showExitDialog()
                     } else if (!gameRepository.isEmergencyLocked()) {
-                        isEnabled = false
-                        onBackPressedDispatcher.onBackPressed()
+                        // Don't allow back press to bypass the dialog
+                        showExitDialog()
                     }
                     // If emergency lock is active, do nothing (prevent back press)
                 } catch (e: Exception) {
                     Log.e(TAG, "Error handling back press", e)
-                    // Fallback to default behavior if something goes wrong
-                    isEnabled = false
-                    onBackPressedDispatcher.onBackPressed()
+                    // Show dialog even if there's an error
+                    showExitDialog()
                 }
             }
         })
+
+        // Add these flags to prevent the app from being easily closed
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        window.addFlags(WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD)
+        window.addFlags(WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED)
+        window.addFlags(WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON)
 
         // Initialize repositories
         val authRepository = ServiceLocator.provideAuthRepository(this)
@@ -76,7 +84,7 @@ class MainActivity : ComponentActivity() {
             WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
             WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
         )
-        
+
         // Hide the status bar using the new WindowInsetsController API
         val windowInsetsController = WindowCompat.getInsetsController(window, window.decorView)
         windowInsetsController.apply {
@@ -131,7 +139,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onStop() {
         super.onStop()
-        if (!isFinishing && !isDialogShowing && !isHandlingLeave) {
+        // Check if we're coming from NFC scan - don't show exit dialog in this case
+        if (!isFinishing && !isDialogShowing && !isHandlingLeave && !isFromNfcScan) {
             try {
                 val authRepository = ServiceLocator.provideAuthRepository(this)
                 val gameRepository = ServiceLocator.provideGameRepository(this)
@@ -141,22 +150,41 @@ class MainActivity : ComponentActivity() {
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error handling app stop", e)
+                // Show dialog even if there's an error
+                isHandlingLeave = true
+                showExitDialog()
             }
         }
+
+        // Reset the NFC scan flag
+        isFromNfcScan = false
     }
 
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
-        if (!isHandlingLeave && !isDialogShowing) {
+        // This is called when the user presses the Home button
+        if (!isHandlingLeave && !isDialogShowing && !isFromNfcScan) {
             isHandlingLeave = true
             try {
                 val authRepository = ServiceLocator.provideAuthRepository(this)
                 val gameRepository = ServiceLocator.provideGameRepository(this)
                 if (authRepository.isLoggedIn() && !gameRepository.isEmergencyLocked()) {
                     showExitDialog()
+                    // Bring the app back to the foreground after a short delay
+                    coroutineScope.launch {
+                        kotlinx.coroutines.delay(100)
+                        moveTaskToFront()
+                    }
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error handling user leave", e)
+                // Show dialog even if there's an error
+                showExitDialog()
+                // Bring the app back to the foreground
+                coroutineScope.launch {
+                    kotlinx.coroutines.delay(100)
+                    moveTaskToFront()
+                }
             } finally {
                 isHandlingLeave = false
             }
@@ -172,6 +200,7 @@ class MainActivity : ComponentActivity() {
             // Store the intent for later processing and update the state
             setIntent(intent)
             nfcIntent.value = intent
+            isFromNfcScan = true // Mark that we're processing an NFC scan
             Log.d(TAG, "Received new NFC intent")
         }
     }
@@ -196,24 +225,36 @@ class MainActivity : ComponentActivity() {
 
     override fun onPause() {
         super.onPause()
-        
+
         // Check if this is a real pause (app being minimized) and not just a configuration change
-        if (!isChangingConfigurations) {
+        if (!isChangingConfigurations && !isFromNfcScan && !isDialogShowing) {
             try {
                 val authRepository = ServiceLocator.provideAuthRepository(this)
                 val gameRepository = ServiceLocator.provideGameRepository(this)
                 if (authRepository.isLoggedIn() && !gameRepository.isEmergencyLocked()) {
                     showExitDialog()
+                    // Bring the app back to the foreground after a short delay
+                    coroutineScope.launch {
+                        kotlinx.coroutines.delay(100)
+                        moveTaskToFront()
+                    }
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error handling app minimization", e)
+                // Show dialog even if there's an error
+                showExitDialog()
+                // Bring the app back to the foreground
+                coroutineScope.launch {
+                    kotlinx.coroutines.delay(100)
+                    moveTaskToFront()
+                }
             }
         }
     }
 
     private fun showExitDialog() {
         if (isDialogShowing) return
-        
+
         try {
             val gameRepository = ServiceLocator.provideGameRepository(this)
             if (gameRepository.isEmergencyLocked()) {
@@ -222,8 +263,10 @@ class MainActivity : ComponentActivity() {
             }
 
             isDialogShowing = true
-            val builder = AlertDialog.Builder(this)
-            builder.setTitle("Exit Game")
+
+            // Use a dialog that doesn't depend on AppCompat theme
+            val builder = android.app.AlertDialog.Builder(this)
+            val dialog = builder.setTitle("Exit Game")
                 .setMessage("Do you want to exit the game? Your progress will be saved but you may forfeit any ongoing challenges.")
                 .setPositiveButton("Exit") { _, _ ->
                     isEmergencyLocked = false  // Ensure data is cleared on normal exit
@@ -257,7 +300,24 @@ class MainActivity : ComponentActivity() {
                     isDialogShowing = false
                     isHandlingLeave = false
                 }
-                .show()
+                .create()
+
+            // Prevent dialog from being dismissed when touching outside
+            dialog.setCanceledOnTouchOutside(false)
+
+            // Set window flags to keep dialog on top
+            dialog.window?.setFlags(
+                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                        WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
+                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                        WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH
+            )
+
+            // Show the dialog
+            dialog.show()
+
+            // Remove the untouchable flag after showing to allow interaction with the dialog
+            dialog.window?.clearFlags(WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE)
         } catch (e: Exception) {
             Log.e(TAG, "Error showing exit dialog", e)
             isDialogShowing = false
@@ -293,5 +353,22 @@ class MainActivity : ComponentActivity() {
         return intent.action == NfcAdapter.ACTION_NDEF_DISCOVERED ||
                 intent.action == NfcAdapter.ACTION_TECH_DISCOVERED ||
                 intent.action == NfcAdapter.ACTION_TAG_DISCOVERED
+    }
+
+    // Method to set the NFC scan flag from other components
+    fun setFromNfcScan(value: Boolean) {
+        isFromNfcScan = value
+        Log.d(TAG, "Setting isFromNfcScan to $value")
+    }
+
+    // Add this helper method to bring the app back to the foreground
+    @RequiresPermission(Manifest.permission.REORDER_TASKS)
+    private fun moveTaskToFront() {
+        try {
+            val activityManager = getSystemService(ACTIVITY_SERVICE) as ActivityManager
+            activityManager.moveTaskToFront(taskId, 0)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error moving task to front", e)
+        }
     }
 }

@@ -93,6 +93,7 @@ fun GameDashboardScreen(
                     
                     // Update solved challenges and completion percentage
                     solvedChallengeIds = solvedIds
+                    preferencesManager.setSolvedChallenges(solvedChallengeIds.toList())
                     completionPercentage = ((solvedIds.size.toDouble() * 100) / challenges.size).toInt()
                 }
             } catch (e: Exception) {
@@ -113,6 +114,7 @@ fun GameDashboardScreen(
                     
                     // Update solved challenges
                     solvedChallengeIds = solvedIds
+                    preferencesManager.setSolvedChallenges(solvedChallengeIds.toList())
                     completionPercentage = ((solvedIds.size.toDouble() * 100) / challenges.size).toInt()   
                 }
             } catch (e: Exception) {
@@ -203,8 +205,7 @@ fun GameDashboardScreen(
             // Progress Card
             ProgressCard(
                 completedClues = completedChallenges,
-                totalClues = totalChallenges,
-                percentage = completionPercentage
+                totalClues = totalChallenges
             )
 
             Spacer(modifier = Modifier.height(24.dp))
@@ -492,10 +493,9 @@ fun SolvedChallengeCard(
 @Composable
 fun ProgressCard(
     completedClues: Int,
-    totalClues: Int,
-    percentage: Int
+    totalClues: Int
 ) {
-    val progress = if (totalClues > 0) completedClues.toFloat() / totalClues.toFloat() else 0f
+    val progress =  if (totalClues > 0) completedClues.toFloat() / totalClues.toFloat() else 0f
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -518,7 +518,7 @@ fun ProgressCard(
                     color = TextWhite
                 )
                 Text(
-                    text = "$percentage%",
+                    text = String.format("%.2f%%",progress*100),
                     style = MaterialTheme.typography.titleMedium,
                     color = Gold,
                     fontWeight = FontWeight.Bold

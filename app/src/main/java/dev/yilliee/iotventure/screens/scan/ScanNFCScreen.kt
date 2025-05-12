@@ -84,7 +84,8 @@ fun NfcResultDialog(
             Button(
                 onClick = {
                     onDismiss()
-                    onScanComplete() // This will navigate back to the dashboard
+                    // Call onScanComplete directly here instead of relying on shouldNavigateBack
+                    onScanComplete()
                 },
                 colors = ButtonDefaults.buttonColors(
                     containerColor = when(status) {
@@ -121,6 +122,9 @@ fun ScanNfcScreen(
     val gameRepository = remember { ServiceLocator.provideGameRepository(context) }
     val scope = rememberCoroutineScope()
 
+    // Get MainActivity instance to set NFC scan flag
+    val activity = remember { context.findActivity() as? MainActivity }
+
     var scanStatus by remember { mutableStateOf(ScanStatus.SCANNING) }
     var statusMessage by remember { mutableStateOf("Scanning for NFC token...") }
     var nfcContent by remember { mutableStateOf("") }
@@ -131,6 +135,18 @@ fun ScanNfcScreen(
     val nfcAdapter = remember { NfcAdapter.getDefaultAdapter(context) }
     val isNfcAvailable = remember { nfcAdapter != null }
     val isNfcEnabled = remember { nfcAdapter?.isEnabled ?: false }
+
+    // Set NFC scan flag when entering and leaving this screen
+    LaunchedEffect(Unit) {
+        activity?.setFromNfcScan(true)
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            // Reset NFC scan flag when leaving the screen
+            activity?.setFromNfcScan(false)
+        }
+    }
 
     // Check NFC availability
     LaunchedEffect(Unit) {
@@ -148,30 +164,43 @@ fun ScanNfcScreen(
 
     // Observe NFC validation results from the repository
     LaunchedEffect(Unit) {
-        gameRepository.nfcValidationResult.collect { result ->
-            result?.let {
-                when (result) {
-                    is NfcValidationResult.Valid -> {
-                        scanStatus = ScanStatus.SUCCESS
-                        statusMessage = "Challenge found! ${result.challenge.name}"
-                        validatedChallenge = result.challenge
-                        showResultDialog = true
+        try {
+            gameRepository.nfcValidationResult.collect { result ->
+                result?.let {
+                    when (result) {
+                        is NfcValidationResult.Valid -> {
+                            scanStatus = ScanStatus.SUCCESS
+                            statusMessage = "Challenge found! ${result.challenge.name}"
+                            validatedChallenge = result.challenge
+                            showResultDialog = true
 
-                        // Add to solve queue
-                        gameRepository.addToSolveQueue(result.challenge)
-                    }
-                    is NfcValidationResult.Invalid -> {
-                        scanStatus = ScanStatus.ERROR
-                        statusMessage = "Invalid NFC token. This doesn't match any challenge."
-                        showResultDialog = true
-                    }
-                    is NfcValidationResult.AlreadySolved -> {
-                        scanStatus = ScanStatus.ALREADY_SOLVED
-                        statusMessage = "This challenge has already been solved!"
-                        showResultDialog = true
+                            // Add to solve queue and submit to server
+                            try {
+                                gameRepository.addToSolveQueue(result.challenge)
+                            } catch (e: Exception) {
+                                Log.e("ScanNFCScreen", "Error adding challenge to solve queue", e)
+                                // Don't crash the app, just log the error
+                            }
+                        }
+                        is NfcValidationResult.Invalid -> {
+                            scanStatus = ScanStatus.ERROR
+                            statusMessage = "Invalid NFC token. This doesn't match any challenge."
+                            showResultDialog = true
+                        }
+                        is NfcValidationResult.AlreadySolved -> {
+                            scanStatus = ScanStatus.ALREADY_SOLVED
+                            statusMessage = "This challenge has already been solved!"
+                            showResultDialog = true
+                        }
+                        is NfcValidationResult.Processing -> {
+                            scanStatus = ScanStatus.SCANNING
+                            statusMessage = "Processing NFC tag..."
+                        }
                     }
                 }
             }
+        } catch (e: Exception) {
+            Log.e("ScanNFCScreen", "Error collecting NFC validation results", e)
         }
     }
 
@@ -211,16 +240,24 @@ fun ScanNfcScreen(
             )
 
             // Enable NFC foreground dispatch only when on this screen
-            nfcAdapter?.enableForegroundDispatch(
-                context.findActivity(),
-                pendingIntent,
-                intentFilters,
-                null
-            )
+            try {
+                nfcAdapter?.enableForegroundDispatch(
+                    context.findActivity(),
+                    pendingIntent,
+                    intentFilters,
+                    null
+                )
+            } catch (e: Exception) {
+                Log.e("ScanNFCScreen", "Error enabling NFC foreground dispatch", e)
+            }
 
             onDispose {
                 // Disable NFC foreground dispatch when leaving this screen
-                nfcAdapter?.disableForegroundDispatch(context.findActivity())
+                try {
+                    nfcAdapter?.disableForegroundDispatch(context.findActivity())
+                } catch (e: Exception) {
+                    Log.e("ScanNFCScreen", "Error disabling NFC foreground dispatch", e)
+                }
                 // Clear validation result
                 gameRepository.clearNfcValidationResult()
             }
@@ -237,29 +274,44 @@ fun ScanNfcScreen(
         currentNfcIntent?.let { intent ->
             // Only process if we're in scanning state
             if (scanStatus == ScanStatus.SCANNING) {
-                val tag = intent.getParcelableExtra<Tag>(NfcAdapter.EXTRA_TAG)
-                tag?.let {
-                    try {
-                        // Always use the tag ID as the primary identifier
-                        val id = tag.id
-                        if (id != null && id.isNotEmpty()) {
-                            val hexId = id.joinToString("") { "%02X".format(it) }
-                            nfcContent = hexId
+                try {
+                    val tag = intent.getParcelableExtra<Tag>(NfcAdapter.EXTRA_TAG)
+                    tag?.let {
+                        try {
+                            // Always use the tag ID as the primary identifier
+                            val id = tag.id
+                            if (id != null && id.isNotEmpty()) {
+                                val hexId = id.joinToString("") { "%02X".format(it) }
+                                nfcContent = hexId
 
-                            // Validate the NFC tag ID against challenges
-                            scope.launch {
-                                gameRepository.validateNfcTag(hexId)
+                                // Validate the NFC tag ID against challenges
+                                scope.launch {
+                                    try {
+                                        gameRepository.validateNfcTag(hexId)
+                                    } catch (e: Exception) {
+                                        Log.e("ScanNFCScreen", "Error validating NFC tag", e)
+                                        scanStatus = ScanStatus.ERROR
+                                        statusMessage = "Error validating tag: ${e.message ?: "Unknown error"}"
+                                        showResultDialog = true
+                                    }
+                                }
+                            } else {
+                                scanStatus = ScanStatus.ERROR
+                                statusMessage = "Could not read NFC tag ID"
+                                showResultDialog = true
                             }
-                        } else {
+                        } catch (e: Exception) {
+                            Log.e("ScanNFCScreen", "Error reading NFC tag", e)
                             scanStatus = ScanStatus.ERROR
-                            statusMessage = "Could not read NFC tag ID"
+                            statusMessage = "Error reading NFC tag: ${e.message ?: "Unknown error"}"
                             showResultDialog = true
                         }
-                    } catch (e: Exception) {
-                        scanStatus = ScanStatus.ERROR
-                        statusMessage = "Error reading NFC tag: ${e.message}"
-                        showResultDialog = true
                     }
+                } catch (e: Exception) {
+                    Log.e("ScanNFCScreen", "Error processing NFC intent", e)
+                    scanStatus = ScanStatus.ERROR
+                    statusMessage = "Error processing NFC: ${e.message ?: "Unknown error"}"
+                    showResultDialog = true
                 }
 
                 // Clear the NFC intent after processing
@@ -309,10 +361,10 @@ fun ScanNfcScreen(
                     statusMessage = "Scanning for NFC token..."
                     validatedChallenge = null
                     gameRepository.clearNfcValidationResult()
-                    // Don't call onScanComplete() here to keep the screen open
-
                 },
-                onScanComplete = onScanComplete
+                onScanComplete = {
+                    onScanComplete()
+                }
             )
         }
     }
