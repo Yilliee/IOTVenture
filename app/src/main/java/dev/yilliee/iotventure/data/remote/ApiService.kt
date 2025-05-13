@@ -388,43 +388,45 @@ class ApiService {
      */
     suspend fun sendMessage(content: String): Result<MessageResponse> {
         return withContext(Dispatchers.IO) {
-            try {
-                val baseUrl = getBaseUrl()
-                Log.d(TAG, "Sending message: $content")
+            retryIO {
+                try {
+                    val baseUrl = getBaseUrl()
+                    Log.d(TAG, "Sending message: $content")
 
-                val url = URL("$baseUrl/messages")
-                val connection = url.openConnection() as HttpURLConnection
-                connection.requestMethod = "POST"
-                addAuthHeader(connection)
-                connection.setRequestProperty("Content-Type", "application/json")
-                connection.setRequestProperty("Accept", "application/json")
-                connection.doOutput = true
-                connection.connectTimeout = CONNECT_TIMEOUT
-                connection.readTimeout = READ_TIMEOUT
+                    val url = URL("$baseUrl/messages")
+                    val connection = url.openConnection() as HttpURLConnection
+                    connection.requestMethod = "POST"
+                    addAuthHeader(connection)
+                    connection.setRequestProperty("Content-Type", "application/json")
+                    connection.setRequestProperty("Accept", "application/json")
+                    connection.doOutput = true
+                    connection.connectTimeout = CONNECT_TIMEOUT
+                    connection.readTimeout = READ_TIMEOUT
 
-                // Write request body
-                val requestBody = json.encodeToString(MessageRequest(content))
-                connection.outputStream.use { os ->
-                    os.write(requestBody.toByteArray())
-                    os.flush()
+                    // Write request body
+                    val requestBody = json.encodeToString(MessageRequest(content))
+                    connection.outputStream.use { os ->
+                        os.write(requestBody.toByteArray())
+                        os.flush()
+                    }
+
+                    // Process response
+                    val responseCode = connection.responseCode
+                    Log.d(TAG, "Send message response code: $responseCode")
+
+                    if (responseCode == HttpURLConnection.HTTP_OK) {
+                        val response = BufferedReader(InputStreamReader(connection.inputStream)).use { it.readText() }
+                        val messageResponse = json.decodeFromString<MessageResponse>(response)
+                        Result.success(messageResponse)
+                    } else {
+                        val errorResponse = BufferedReader(InputStreamReader(connection.errorStream)).use { it.readText() }
+                        Log.e(TAG, "Send message error: $errorResponse")
+                        Result.failure(Exception("Failed to send message: $errorResponse"))
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Send message network error", e)
+                    Result.failure(e)
                 }
-
-                // Process response
-                val responseCode = connection.responseCode
-                Log.d(TAG, "Send message response code: $responseCode")
-
-                if (responseCode == HttpURLConnection.HTTP_OK) {
-                    val response = BufferedReader(InputStreamReader(connection.inputStream)).use { it.readText() }
-                    val messageResponse = json.decodeFromString<MessageResponse>(response)
-                    Result.success(messageResponse)
-                } else {
-                    val errorResponse = BufferedReader(InputStreamReader(connection.errorStream)).use { it.readText() }
-                    Log.e(TAG, "Send message error: $errorResponse")
-                    Result.failure(Exception("Failed to send message: $errorResponse"))
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Send message network error", e)
-                Result.failure(e)
             }
         }
     }

@@ -29,6 +29,7 @@ import kotlinx.coroutines.launch
 import java.util.concurrent.TimeUnit
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
+import android.util.Log
 
 @Composable
 fun GameDashboardScreen(
@@ -66,7 +67,7 @@ fun GameDashboardScreen(
     LaunchedEffect(Unit) {
         // Load initial state from preferences
         gameRepository.loadChallengesFromPreferences()
-        
+
         gameRepository.challenges.collectLatest {
             challenges = it
             println("Challenges received: $it")
@@ -79,25 +80,33 @@ fun GameDashboardScreen(
         }
     }
 
-    // Add this LaunchedEffect to fetch leaderboard data periodically
+    // Add this LaunchedEffect to fetch leaderboard data and messages periodically
     LaunchedEffect(Unit) {
+        // Get chat repository
+        val chatRepository = ServiceLocator.provideChatRepository(context)
+
         // Initial fetch
         scope.launch {
             try {
+                // Fetch leaderboard
                 val result = ServiceLocator.provideApiService(context).getLeaderboard()
                 if (result.isSuccess) {
                     // Extract solved challenges from leaderboard data
                     val leaderboardData = result.getOrNull()
                     val currentTeamSolves = leaderboardData?.teamSolves?.find { it.name == preferencesManager.getTeamName() }
                     val solvedIds = currentTeamSolves?.solves?.filter { it.solved }?.map { it.challengeId }?.toSet() ?: emptySet()
-                    
+
                     // Update solved challenges and completion percentage
                     solvedChallengeIds = solvedIds
                     preferencesManager.setSolvedChallenges(solvedChallengeIds.toList())
                     completionPercentage = ((solvedIds.size.toDouble() * 100) / challenges.size).toInt()
                 }
+
+                // Also fetch messages
+                chatRepository.fetchMessages()
             } catch (e: Exception) {
                 // Ignore errors, will try again later
+                Log.e("GameDashboard", "Error in initial data fetch", e)
             }
         }
 
@@ -105,20 +114,26 @@ fun GameDashboardScreen(
         while (true) {
             delay(30000) // 30 seconds
             try {
+                // Fetch leaderboard
                 val result = ServiceLocator.provideApiService(context).getLeaderboard()
                 if (result.isSuccess) {
                     // Extract solved challenges from leaderboard data
                     val leaderboardData = result.getOrNull()
                     val currentTeamSolves = leaderboardData?.teamSolves?.find { it.name == preferencesManager.getTeamName() }
                     val solvedIds = currentTeamSolves?.solves?.filter { it.solved }?.map { it.challengeId }?.toSet() ?: emptySet()
-                    
+
                     // Update solved challenges
                     solvedChallengeIds = solvedIds
                     preferencesManager.setSolvedChallenges(solvedChallengeIds.toList())
-                    completionPercentage = ((solvedIds.size.toDouble() * 100) / challenges.size).toInt()   
+                    completionPercentage = ((solvedIds.size.toDouble() * 100) / challenges.size).toInt()
                 }
+
+                // Also fetch messages
+                chatRepository.fetchMessages()
+                Log.d("GameDashboard", "Periodic data refresh completed")
             } catch (e: Exception) {
                 // Ignore errors, will try again
+                Log.e("GameDashboard", "Error in periodic data refresh", e)
             }
         }
     }

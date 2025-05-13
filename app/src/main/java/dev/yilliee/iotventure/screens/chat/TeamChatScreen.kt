@@ -64,8 +64,9 @@ fun TeamChatScreen(
                 onMessageChange = { messageText = it },
                 onSendClick = {
                     if (messageText.isNotBlank()) {
-                        viewModel.sendMessage(messageText)
-                        messageText = ""
+                        val message = messageText.trim()
+                        messageText = "" // Clear immediately for better UX
+                        viewModel.sendMessage(message)
                     }
                 }
             )

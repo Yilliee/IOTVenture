@@ -80,16 +80,18 @@ class ChatRepository(
     suspend fun sendMessage(text: String): Result<TeamMessage> {
         return withContext(Dispatchers.IO) {
             try {
-                // First add message locally
+                // First add message locally with SENT status
                 val localMessage = addLocalMessage(text)
 
                 // Then try to send to server
                 val result = apiService.sendMessage(text)
 
                 if (result.isSuccess) {
-                    // Message sent successfully
+                    // Message sent successfully, update status to DELIVERED
+                    val updatedMessage = localMessage.copy(status = MessageStatus.DELIVERED)
+                    updateMessageStatus(updatedMessage)
                     Log.d(TAG, "Message sent successfully")
-                    return@withContext Result.success(localMessage)
+                    return@withContext Result.success(updatedMessage)
                 } else {
                     // Message failed to send, but we keep it locally
                     Log.e(TAG, "Failed to send message: ${result.exceptionOrNull()?.message}")
@@ -101,6 +103,18 @@ class ChatRepository(
                 return@withContext Result.success(addLocalMessage(text))
             }
         }
+    }
+
+    /**
+     * Updates a message's status in local storage
+     */
+    private fun updateMessageStatus(message: TeamMessage) {
+        val existingMessages = preferencesManager.getTeamMessages()
+        val updatedMessages = existingMessages.map {
+            if (it.id == message.id) message else it
+        }
+        preferencesManager.saveTeamMessages(updatedMessages)
+        Log.d(TAG, "Updated message status: ${message.id} to ${message.status}")
     }
 
     /**

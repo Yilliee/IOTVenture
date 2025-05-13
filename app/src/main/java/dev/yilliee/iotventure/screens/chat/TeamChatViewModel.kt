@@ -70,13 +70,23 @@ class TeamChatViewModel(private val chatRepository: ChatRepository) : ViewModel(
             val result = chatRepository.sendMessage(text)
 
             if (result.isSuccess) {
-                // Message sent successfully, update UI
+                // Message sent successfully, update UI immediately
+                val newMessage = result.getOrNull()!!
+
+                // Get current messages and add the new one
                 val currentMessages = when (val state = _chatState.value) {
                     is ChatState.Success -> state.messages
                     is ChatState.NetworkError -> state.cachedMessages
                     else -> emptyList()
                 }
-                _chatState.value = ChatState.Success(currentMessages + result.getOrNull()!!)
+
+                // Create a new list with the new message
+                val updatedMessages = currentMessages + newMessage
+
+                // Update the state with the new list
+                _chatState.value = ChatState.Success(updatedMessages)
+
+                Log.d(TAG, "Message sent and UI updated")
             } else {
                 // Message failed to send, but we keep it locally
                 Log.e(TAG, "Failed to send message: ${result.exceptionOrNull()?.message}")
