@@ -5,6 +5,7 @@ import dev.yilliee.iotventure.data.model.LoginRequest
 import dev.yilliee.iotventure.data.model.LoginResponse
 import dev.yilliee.iotventure.data.model.MessageResponse
 import dev.yilliee.iotventure.data.model.LeaderboardResponse
+import dev.yilliee.iotventure.data.model.MessageRequest
 import dev.yilliee.iotventure.data.model.UpdateLeaderboardRequest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -355,10 +356,11 @@ class ApiService {
                 val baseUrl = getBaseUrl()
                 Log.d(TAG, "Fetching messages")
 
-                val url = URL("$baseUrl/messages")
+                val urlString = "$baseUrl/messages?deviceToken=$deviceToken"
+                val url = URL(urlString)
+
                 val connection = url.openConnection() as HttpURLConnection
                 connection.requestMethod = "GET"
-                addAuthHeader(connection)
                 connection.setRequestProperty("Accept", "application/json")
                 connection.connectTimeout = CONNECT_TIMEOUT
                 connection.readTimeout = READ_TIMEOUT
@@ -393,18 +395,32 @@ class ApiService {
                     val baseUrl = getBaseUrl()
                     Log.d(TAG, "Sending message: $content")
 
+                    // Check if we have a device token
+                    if (deviceToken == null) {
+                        Log.e(TAG, "No device token available for sending message")
+                        return@retryIO Result.failure(Exception("No device token available"))
+                    }
+
                     val url = URL("$baseUrl/messages")
                     val connection = url.openConnection() as HttpURLConnection
                     connection.requestMethod = "POST"
-                    addAuthHeader(connection)
                     connection.setRequestProperty("Content-Type", "application/json")
                     connection.setRequestProperty("Accept", "application/json")
                     connection.doOutput = true
                     connection.connectTimeout = CONNECT_TIMEOUT
                     connection.readTimeout = READ_TIMEOUT
 
-                    // Write request body
-                    val requestBody = json.encodeToString(MessageRequest(content))
+                    // Create the proper request object
+                    val messageRequest = MessageRequest(
+                        deviceToken = deviceToken!!,
+                        content = content
+                    )
+
+                    // Serialize to JSON
+                    val requestBody = json.encodeToString(messageRequest)
+
+                    Log.d(TAG, "Send message request body: $requestBody")
+
                     connection.outputStream.use { os ->
                         os.write(requestBody.toByteArray())
                         os.flush()
@@ -416,6 +432,7 @@ class ApiService {
 
                     if (responseCode == HttpURLConnection.HTTP_OK) {
                         val response = BufferedReader(InputStreamReader(connection.inputStream)).use { it.readText() }
+                        Log.d(TAG, "Send message response: $response")
                         val messageResponse = json.decodeFromString<MessageResponse>(response)
                         Result.success(messageResponse)
                     } else {

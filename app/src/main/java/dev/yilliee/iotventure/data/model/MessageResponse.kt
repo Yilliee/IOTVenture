@@ -4,9 +4,8 @@ import kotlinx.serialization.Serializable
 
 @Serializable
 data class MessageResponse(
-    val messages: List<Message>? = null,
-    val serverTime: Long? = null,
-    val error: String? = null
+    val messages: List<Message> = emptyList(),
+    val serverTime: Long = 0
 )
 
 @Serializable
@@ -15,4 +14,10 @@ data class Message(
     val content: String,
     val createdAt: String,
     val senderName: String? = null
+)
+
+@Serializable
+data class MessageRequest(
+    val deviceToken: String,
+    val content: String
 )

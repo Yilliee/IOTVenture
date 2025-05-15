@@ -27,28 +27,23 @@ class TeamChatViewModel(private val chatRepository: ChatRepository) : ViewModel(
         _chatState.value = ChatState.Success(localMessages)
 
         // Start periodic message fetching
-        startMessageFetching()
+        //startMessageFetching()
+
+        // Initial fetch to get latest messages
+        fetchMessages()
     }
 
-    private fun startMessageFetching() {
+    private fun fetchMessages() {
         viewModelScope.launch {
-            while (true) {
-                try {
-                    val result = chatRepository.fetchMessages()
-                    if (result.isSuccess) {
-                        val messages = result.getOrNull() ?: emptyList()
-                        _chatState.value = ChatState.Success(messages)
-                    } else {
-                        // Keep current messages on error
-                        val currentMessages = when (val state = _chatState.value) {
-                            is ChatState.Success -> state.messages
-                            is ChatState.NetworkError -> state.cachedMessages
-                            else -> emptyList()
-                        }
-                        _chatState.value = ChatState.NetworkError(currentMessages)
-                    }
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error fetching messages", e)
+            try {
+                Log.d(TAG, "Manually fetching messages")
+                val result = chatRepository.fetchMessages()
+                if (result.isSuccess) {
+                    val messages = result.getOrNull() ?: emptyList()
+                    Log.d(TAG, "Fetched ${messages.size} messages")
+                    _chatState.value = ChatState.Success(messages)
+                } else {
+                    Log.e(TAG, "Error fetching messages: ${result.exceptionOrNull()?.message}")
                     // Keep current messages on error
                     val currentMessages = when (val state = _chatState.value) {
                         is ChatState.Success -> state.messages
@@ -57,7 +52,17 @@ class TeamChatViewModel(private val chatRepository: ChatRepository) : ViewModel(
                     }
                     _chatState.value = ChatState.NetworkError(currentMessages)
                 }
+            } catch (e: Exception) {
+                Log.e(TAG, "Exception fetching messages", e)
+            }
+        }
+    }
+
+    private fun startMessageFetching() {
+        viewModelScope.launch {
+            while (true) {
                 delay(MESSAGE_FETCH_INTERVAL)
+                fetchMessages()
             }
         }
     }
@@ -67,29 +72,25 @@ class TeamChatViewModel(private val chatRepository: ChatRepository) : ViewModel(
 
         viewModelScope.launch {
             Log.d(TAG, "Sending message: $text")
+
+            // First add message locally to show immediately
+            val currentMessages = when (val state = _chatState.value) {
+                is ChatState.Success -> state.messages
+                is ChatState.NetworkError -> state.cachedMessages
+                else -> emptyList()
+            }
+
+            // Send the message
             val result = chatRepository.sendMessage(text)
 
             if (result.isSuccess) {
-                // Message sent successfully, update UI immediately
-                val newMessage = result.getOrNull()!!
-
-                // Get current messages and add the new one
-                val currentMessages = when (val state = _chatState.value) {
-                    is ChatState.Success -> state.messages
-                    is ChatState.NetworkError -> state.cachedMessages
-                    else -> emptyList()
-                }
-
-                // Create a new list with the new message
-                val updatedMessages = currentMessages + newMessage
-
-                // Update the state with the new list
-                _chatState.value = ChatState.Success(updatedMessages)
-
-                Log.d(TAG, "Message sent and UI updated")
+                // Message sent successfully, fetch messages to get the updated list
+                Log.d(TAG, "Message sent successfully, fetching updated messages")
+                fetchMessages()
             } else {
                 // Message failed to send, but we keep it locally
                 Log.e(TAG, "Failed to send message: ${result.exceptionOrNull()?.message}")
+                // We don't need to update UI here as the local message is already added by ChatRepository
             }
         }
     }
